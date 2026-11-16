@@ -333,7 +333,12 @@ def read_nbm_field(init_dt, valid_dt, product):
 
     if object_exists(NBM_BUCKET, qmd) and object_exists(NBM_BUCKET, qmd + ".idx"):
         lines = idx_lines(NBM_BUCKET, qmd)
-        for i in field_candidates(lines, product):
+        qmd_candidates = field_candidates(lines, product)
+        if not qmd_candidates and os.environ.get("DEBUG_QMD", "1") == "1":
+            print("QMD index sample for", qmd, product, ":",
+                  [line for line in lines if any(token in line.upper()
+                   for token in ("TMP:", "TMIN:", "TMAX:"))][:12])
+        for i in qmd_candidates:
             try:
                 msg = fetch_idx_message(NBM_BUCKET, qmd, lines, i)
                 if meta_valid(msg[3]) != valid_dt:
