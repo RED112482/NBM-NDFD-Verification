@@ -1,373 +1,326 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NBM / NDFD Temperature Guidance Viewer · R2</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <style>
-    :root{
-      --bg:#07131e;--panel:#102237;--panel2:#0b1b2b;--line:#294c69;
-      --text:#f5fbff;--muted:#9fc4df;--cyan:#a9e9ff;--blue:#50b9ff;
-      --active:#d6f5ff;--activeText:#07131e;--good:#53df9b;--warn:#ffd058;
-    }
-    *{box-sizing:border-box}
-    html,body{margin:0;background:var(--bg);color:var(--text);font-family:Poppins,system-ui,sans-serif}
-    button,select{font:inherit}
-    .shell{max-width:1800px;margin:auto;padding:14px}
-    .header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:12px}
-    .title h1{font-size:24px;line-height:1.05;margin:0;font-weight:800;letter-spacing:-.03em}
-    .title p{margin:5px 0 0;color:var(--muted);font-size:12px}
-    .status{font-size:11px;color:var(--muted);text-align:right}
-    .grid{display:grid;grid-template-columns:360px minmax(0,1fr) 330px;gap:12px;align-items:start}
-    .panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:12px;box-shadow:0 10px 28px rgba(0,0,0,.15)}
-    .panel h2{font-size:13px;margin:0 0 9px;text-transform:uppercase;letter-spacing:.02em}
-    .label{font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;margin:12px 0 6px}
-    .seg{display:grid;gap:6px}
-    .seg.two{grid-template-columns:1fr 1fr}.seg.three{grid-template-columns:repeat(3,1fr)}
-    .seg.four{grid-template-columns:repeat(4,1fr)}
-    .btn{border:1px solid #37607f;background:#071a2a;color:var(--text);border-radius:8px;padding:9px 8px;font-size:11px;font-weight:700;cursor:pointer}
-    .btn:hover{border-color:#79cfff}.btn.active{background:var(--active);color:var(--activeText);border-color:var(--active)}
-    select{width:100%;background:#071a2a;color:var(--text);border:1px solid #37607f;border-radius:8px;padding:9px;font-size:11px}
-    .source-card{border:1px solid #31546e;border-radius:10px;padding:9px;margin-top:7px;background:#0a1b2b;cursor:pointer}
-    .source-card.active{border-color:#bceeff;box-shadow:inset 0 0 0 1px #bceeff}
-    .source-card strong{font-size:12px}.source-card small{display:block;color:var(--muted);font-size:9px;margin-top:2px}
-    #map{height:650px;border-radius:10px;background:#0a1722}
-    .map-panel{padding:8px}
-    .map-top{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:3px 4px 8px}
-    .map-title{font-size:13px;font-weight:800}.map-sub{font-size:10px;color:var(--muted)}
-    .legend{display:flex;align-items:center;gap:7px;font-size:9px;color:var(--muted)}
-    .legend-bar{height:8px;width:170px;border-radius:8px;background:linear-gradient(90deg,#5f46b9,#567bd9,#52b8e8,#7bd4bf,#d7e56a,#f0ba4f,#eb7a42,#dd3d4f,#8c284f)}
-    .cards{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-    .metric{background:#081a2a;border:1px solid #31546e;border-radius:9px;padding:8px}
-    .metric span{display:block;font-size:9px;color:var(--muted)}.metric b{font-size:18px}
-    .wide{grid-column:1/-1}
-    canvas{width:100%!important;height:230px!important}
-    .detail{margin-top:10px;border-top:1px solid #294c69;padding-top:9px;font-size:10px;color:var(--muted);line-height:1.55}
-    .detail b{color:var(--text)}
-    .notice{font-size:10px;color:var(--warn);margin-top:8px}
-    .errors{max-height:120px;overflow:auto;font-size:9px;color:#f4b6b6;margin-top:8px}
-    .leaflet-tooltip{font-family:Poppins,sans-serif;font-size:11px}
-    .leaflet-control-attribution{font-size:8px!important}
-    .pill{display:inline-block;padding:2px 6px;border-radius:999px;background:#09253b;border:1px solid #31546e;color:var(--cyan);font-size:9px;font-weight:700}
-    @media(max-width:1180px){.grid{grid-template-columns:320px 1fr}.right{grid-column:1/-1}.right .panel{max-width:none}.cards{grid-template-columns:repeat(4,1fr)}}
-    @media(max-width:800px){.grid{grid-template-columns:1fr}.right{grid-column:auto}.header{align-items:flex-start;flex-direction:column}.status{text-align:left}#map{height:520px}.cards{grid-template-columns:1fr 1fr}}
-
-    /* R2 paired map and graph, with a full-width compact control bar */
-    .grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
-    .controls{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:14px;row-gap:4px}
-    .controls h2{grid-column:1/-1}
-    .controls>.label{margin:4px 0 2px}
-    .controls>.label:nth-child(2){grid-column:1;grid-row:2}
-    .controls>.seg:nth-child(3){grid-column:1;grid-row:3}
-    .controls>.label:nth-child(4){grid-column:2;grid-row:2}
-    .controls>.seg:nth-child(5){grid-column:2;grid-row:3}
-    .controls>.label:nth-child(6){grid-column:3;grid-row:2}
-    .controls>#validSelect{grid-column:3;grid-row:3}
-    .controls>.label:nth-child(8){grid-column:4;grid-row:2}
-    .controls>#cycleButtons{grid-column:4;grid-row:3}
-    .controls>.label:nth-child(10){grid-column:1/-1;grid-row:4}
-    .controls>#sources{grid-column:1/-1;grid-row:5;display:flex;align-items:stretch;flex-wrap:wrap;gap:8px}
-    .controls>#sources>.source-card{margin:0;min-width:160px}
-    .controls>#sources>.seg{display:flex;gap:6px;flex-wrap:wrap;margin:0!important}
-    .controls>#sources>.seg .btn{min-width:63px}
-    .controls>.detail,.controls>.notice{grid-column:1/-1;margin-top:2px}
-    .map-panel{grid-column:1;min-width:0}
-    #map{height:580px}
-    .right{grid-column:2;min-width:0;display:flex;flex-direction:column;gap:12px}
-    .right>.panel{margin-top:0!important}
-    .right>.chart-panel{order:-2;min-height:625px;display:flex;flex-direction:column}
-    #cycleChart{height:525px!important;max-height:525px!important;min-height:525px!important}
-    .right>.chart-panel .detail{margin-top:auto}
-    .right>.panel:not(.chart-panel):not(.details-panel){order:1}
-    .right>.details-panel{order:2}
-    @media(max-width:1100px){
-      .controls{grid-template-columns:repeat(2,minmax(0,1fr))}
-      .controls>.label:nth-child(2){grid-column:1;grid-row:2}
-      .controls>.seg:nth-child(3){grid-column:1;grid-row:3}
-      .controls>.label:nth-child(4){grid-column:2;grid-row:2}
-      .controls>.seg:nth-child(5){grid-column:2;grid-row:3}
-      .controls>.label:nth-child(6){grid-column:1;grid-row:4}
-      .controls>#validSelect{grid-column:1;grid-row:5}
-      .controls>.label:nth-child(8){grid-column:2;grid-row:4}
-      .controls>#cycleButtons{grid-column:2;grid-row:5}
-      .controls>.label:nth-child(10){grid-column:1/-1;grid-row:6}
-      .controls>#sources{grid-column:1/-1;grid-row:7}
-    }
-    @media(max-width:840px){
-      .grid{grid-template-columns:1fr}
-      .controls,.map-panel,.right{grid-column:1}
-      .right>.chart-panel{min-height:465px}
-      #cycleChart{height:365px!important;max-height:365px!important;min-height:365px!important}
-      #map{height:465px}
-    }
-  </style>
-</head>
-<body>
-<div class="shell">
-  <div class="header">
-    <div class="title">
-      <h1>NBM / NDFD Temperature Guidance</h1>
-      <p>WFO Mobile/Pensacola · NDFD + NBM deterministic and percentile temperature grids · Viewer R2 · No API key required</p>
-    </div>
-    <div class="status" id="status">Loading guidance…</div>
-  </div>
-
-  <div class="grid">
-    <aside class="panel controls">
-      <h2>Forecast Controls</h2>
-
-      <div class="label">Temperature product</div>
-      <div class="seg two">
-        <button class="btn active" data-product="mint">Minimum T</button>
-        <button class="btn" data-product="maxt">Maximum T</button>
-      </div>
-
-      <div class="label">Verification area / sample</div>
-      <div class="seg three">
-        <button class="btn active" data-scope="land">Land</button>
-        <button class="btn" data-scope="marine">Marine</button>
-        <button class="btn" data-scope="both">Both</button>
-      </div>
-
-      <div class="label">Valid period</div>
-      <select id="validSelect"></select>
-
-      <div class="label">NBM cycle</div>
-      <div class="seg four" id="cycleButtons"></div>
-
-      <div class="label">Guidance layer</div>
-      <div id="sources">
-        <div class="source-card active" data-source="ndfd">
-          <strong>Official NDFD</strong>
-          <small>NWS gridded forecast</small>
-        </div>
-        <div class="source-card" data-source="det">
-          <strong>NBM Deterministic</strong>
-          <small>Selected 01/07/13/19Z cycle</small>
-        </div>
-        <div class="seg three" style="margin-top:7px">
-          <button class="btn" data-source="10">P10</button>
-          <button class="btn" data-source="25">P25</button>
-          <button class="btn" data-source="50">P50</button>
-          <button class="btn" data-source="75">P75</button>
-          <button class="btn" data-source="90">P90</button>
-        </div>
-      </div>
-
-      <div class="detail">
-        <b>Current phase:</b> guidance viewing, not verification. The same valid-time/run structure is being retained so future 6–12 hour trend and verification graphs can use this dataset directly.
-      </div>
-      <div class="notice" id="availability"></div>
-    </aside>
-
-    <main class="panel map-panel">
-      <div class="map-top">
-        <div>
-          <div class="map-title" id="mapTitle">Temperature guidance</div>
-          <div class="map-sub" id="mapSub"></div>
-        </div>
-        <div class="legend">
-          <span>Colder</span><div class="legend-bar"></div><span>Warmer</span>
-        </div>
-      </div>
-      <div id="map"></div>
-    </main>
-
-    <aside class="right">
-      <div class="panel">
-        <h2>Spatial Statistics</h2>
-        <div class="cards">
-          <div class="metric"><span>MEAN</span><b id="mean">—</b></div>
-          <div class="metric"><span>MEDIAN</span><b id="median">—</b></div>
-          <div class="metric"><span>MIN</span><b id="min">—</b></div>
-          <div class="metric"><span>MAX</span><b id="max">—</b></div>
-          <div class="metric"><span>P10</span><b id="sp10">—</b></div>
-          <div class="metric"><span>P90</span><b id="sp90">—</b></div>
-          <div class="metric wide"><span>GRID SAMPLES</span><b id="samples">—</b></div>
-        </div>
-      </div>
-
-      <div class="panel chart-panel" style="margin-top:12px">
-        <h2>Forecast Evolution · Same Valid Time</h2>
-        <canvas id="cycleChart"></canvas>
-        <div class="detail">Mean forecast temperature over the selected land/marine sample for the same valid period. This is forecast evolution, not forecast error.</div>
-      </div>
-
-      <div class="panel details-panel" style="margin-top:12px">
-        <h2>Layer Details</h2>
-        <div class="detail" id="layerDetail" style="margin-top:0;border-top:0;padding-top:0"></div>
-        <div class="errors" id="errors"></div>
-      </div>
-    </aside>
-  </div>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NBM / NDFD Historical Temperature Explorer · R3</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+:root{--bg:#07131e;--panel:#102237;--ink:#e8f6ff;--muted:#9cbcd0;--line:#2a4c66;--a:#caf3ff;--warn:#ffc56b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:12px Poppins,system-ui,sans-serif}
+button,select{font:inherit;color:var(--ink);background:#091a2a;border:1px solid #37607f;border-radius:7px;padding:8px;cursor:pointer;min-width:0}
+button.active{background:#c9f4ff;color:#07131e;border-color:#c9f4ff;font-weight:800}button:hover{border-color:#91e0ff}
+.wrap{padding:12px;max-width:1900px;margin:auto}
+header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:12px}
+h1{font-size:22px;line-height:1.15;margin:0;font-weight:800}h2{font-size:13px;text-transform:uppercase;margin:0 0 8px}
+.subtitle{color:var(--muted);font-size:11px;margin-top:4px}#status{font-size:10px;color:var(--muted);text-align:right}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px}
+.controls{display:grid;grid-template-columns:1.05fr 1.2fr .85fr 1.5fr 1.2fr;gap:12px;margin-bottom:12px;align-items:end}
+.field label{display:block;font-size:10px;color:var(--a);font-weight:700;margin-bottom:6px;text-transform:uppercase}
+.segment{display:flex;gap:5px;flex-wrap:wrap}
+.segment>*{flex:1;font-size:11px;font-weight:600}
+select{width:100%;max-width:100%}
+.sources{margin-bottom:12px;display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.sources button{font-size:10px;font-weight:700;min-width:90px}
+.body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:stretch}
+.visual{min-width:0;display:flex;flex-direction:column}
+.visual .top{display:flex;justify-content:space-between;gap:10px;align-items:start;min-height:37px}
+.visual .meta{font-size:10px;color:var(--muted)}
+.surface{height:550px;position:relative;border-radius:9px;overflow:hidden;background:#071723}
+.surface canvas{width:100%;height:100%;display:block}
+#mapCanvas{cursor:grab;touch-action:none}
+#mapCanvas:active{cursor:grabbing}
+#mapTooltip{display:none;position:absolute;pointer-events:none;background:#071521ee;border:1px solid #b5e6ff;border-radius:5px;padding:5px 7px;font-size:11px;white-space:nowrap}
+#graphCanvas{cursor:crosshair}
+.legend{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--muted);margin-top:7px}
+.legend .gradient{width:56%;height:9px;border-radius:5px;background:linear-gradient(90deg,#5748b6,#4d83d4,#4ac1d6,#7ecfb6,#e6e46f,#f5b34e,#e86d42,#c93c55)}
+.graph-options{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.graph-options .segment{flex:1}.graph-options button{font-size:10px}
+.below{display:grid;grid-template-columns:1fr 1.3fr;gap:12px;margin-top:12px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.metric{background:#071a2b;border:1px solid #284961;border-radius:8px;padding:8px}
+.metric small{display:block;font-size:9px;color:var(--muted)}.metric strong{font-size:18px}
+.note{line-height:1.65;font-size:10px;color:var(--muted)}
+#alert{white-space:pre-wrap;color:var(--warn);font-size:11px;margin:6px 0 12px;min-height:0}
+.checks{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;align-items:center}
+.checks label{cursor:pointer;display:flex;gap:4px;align-items:center}
+.checks input{accent-color:#b8eeff}
+#legendCanvas{height:0}
+@media(max-width:1200px){.controls{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:840px){.controls{grid-template-columns:repeat(2,1fr)}.body,.below{grid-template-columns:1fr}.surface{height:450px}.metrics{grid-template-columns:repeat(2,1fr)}}
+</style></head><body>
+<div class="wrap">
+<header><div><h1>NBM / NDFD Temperature Explorer <span style="font-size:11px;color:#8eddf9">R3</span></h1>
+<div class="subtitle">WFO Mobile/Pensacola · Archived forecast cycles · MinT / MaxT · No map API or key</div></div><div id="status">Loading NOAA guidance…</div></header>
+<div class="panel controls">
+  <div class="field"><label>Element</label><div class="segment"><button data-prod="mint" class="active">MinT</button><button data-prod="maxt">MaxT</button></div></div>
+  <div class="field"><label>Verifying / valid date (UTC)</label><select id="date"></select></div>
+  <div class="field"><label>Nominal forecast lead</label><select id="lead"><option value="12">-12h</option><option value="24">-24h</option><option value="36">-36h</option><option value="48">-48h</option><option value="60">-60h</option></select></div>
+  <div class="field"><label>Geographic sample</label><div class="segment"><button data-scope="land" class="active">Land</button><button data-scope="marine">Marine</button><button data-scope="both">Both</button></div></div>
+  <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Error − Analysis</button></div></div>
 </div>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<div class="panel sources"><b style="font-size:10px;color:#afdaf1;margin-right:5px">MAP GUIDANCE</b>
+<button data-source="ndfd" class="active">Official NDFD</button>
+<button data-source="det">NBM Deterministic</button>
+<button data-source="10">NBM P10</button><button data-source="25">NBM P25</button>
+<button data-source="50">NBM P50</button><button data-source="75">NBM P75</button>
+<button data-source="90">NBM P90</button>
+<button data-source="analysis">URMA analysis</button>
+</div>
+<div id="alert" role="status"></div>
+<div class="body">
+<section class="panel visual">
+ <div class="top"><div><h2 id="mapTitle">Temperature Grid</h2><div class="meta" id="mapMeta"></div></div>
+ <div class="checks"><label><input type="checkbox" id="stateCheck" checked>States</label>
+ <label><input type="checkbox" id="countyCheck" checked>Counties</label>
+ <label><input type="checkbox" id="cwaCheck" checked>MOB CWA</label></div></div>
+ <div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
+ <div class="legend"><span id="coldLabel">Colder</span><div class="gradient"></div><span id="warmLabel">Warmer</span></div>
+</section>
+<section class="panel visual">
+ <div class="top"><div><h2 id="graphTitle">Forecast Evolution</h2><div class="meta">All series are matched to the same valid date/time</div></div></div>
+ <div class="graph-options">
+ <div class="segment"><button data-chartmode="lead" class="active">One night · Leads</button><button data-chartmode="daily">Many nights · Fixed lead</button></div>
+ <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div></div>
+ <div class="surface"><canvas id="graphCanvas"></canvas></div>
+ <div class="legend"><span>NBM deterministic • NDFD • P10/P25/P50/P75/P90</span><span id="graphHint">Actual values only</span></div>
+</section>
+</div>
+<div class="below">
+ <div class="panel"><h2>Selected Layer • Spatial Statistics</h2>
+ <div class="metrics">
+ <div class="metric"><small>AREA MEAN</small><strong id="mean">—</strong></div>
+ <div class="metric"><small>AREA MIN</small><strong id="min">—</strong></div>
+ <div class="metric"><small>AREA MAX</small><strong id="max">—</strong></div>
+ <div class="metric"><small>GRID NODES</small><strong id="n">—</strong></div>
+ <div class="metric"><small>MAE vs analysis</small><strong id="mae">—</strong></div>
+ <div class="metric"><small>BIAS vs analysis</small><strong id="bias">—</strong></div>
+ <div class="metric"><small>ANALYSIS AVAILABLE</small><strong id="truth">—</strong></div>
+ <div class="metric"><small>GRIB PERIOD</small><strong id="period">—</strong></div>
+ </div></div>
+ <div class="panel"><h2>Source provenance and forecast-period safeguards</h2>
+ <div class="note" id="details">Data loading. Nominal -12/-24/-36/-48/-60h tracks available 01Z/13Z NBM runs around NDFD 00Z/12Z reference snapshots. The actual model forecast age is recorded separately. No missing percentile or observation is estimated.</div>
+ </div>
+</div>
+</div>
 <script>
-const state={data:null,product:'mint',scope:'land',valid:null,cycle:null,source:'ndfd'};
-window.addEventListener('error', e=>{const el=document.getElementById('availability');if(el)el.textContent='Viewer error: '+e.message;});
-const map=L.map('map',{preferCanvas:true,zoomControl:true}).setView([30.75,-87.65],7);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
-  maxZoom:12,attribution:'© OpenStreetMap © CARTO'
-}).addTo(map);
-const canvasRenderer=L.canvas({padding:.4});
-let tempLayer=L.layerGroup().addTo(map), boundaryLayer=L.layerGroup().addTo(map), chart=null;
-
-function isoLabel(s){
-  const d=new Date(s);
-  return d.toLocaleString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+'Z';
+'use strict';
+const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',zoom:1,center:null};
+const C={ndfd:'#ff5359',det:'#62caff','10':'#537fff','25':'#8f8aff','50':'#b5a3fb','75':'#ffb869','90':'#ffd45f'};
+const $=id=>document.getElementById(id),finite=x=>Number.isFinite(x);
+const UTC=s=>new Date(s).toISOString().slice(0,16).replace('T',' ')+'Z';
+function currentDays(){return S.history?.days?.[S.product]||null}
+function currentRecord(){return currentDays()?.[S.date]||null}
+function currentSlot(){return currentRecord()?.leads?.[String(S.lead)]||null}
+function currentForward(){return S.current?.products?.[S.product]?.[S.date]||null}
+function selectedLayer(slot=currentSlot()){
+ if(S.source==='analysis')return currentRecord()?.analysis||null;
+ if(slot){if(S.source==='ndfd')return slot.ndfd;if(S.source==='det')return slot.nbm?.det||null;return slot.nbm?.percentiles?.[S.source]||null}
+ const f=currentForward();if(!f)return null;
+ if(S.source==='ndfd')return f.ndfd;
+ const run=Object.values(f.nbm||{}).find(x=>x.det)||null;
+ return S.source==='det'?run?.det:run?.percentiles?.[S.source];
 }
-function cycleHour(s){return String(new Date(s).getUTCHours()).padStart(2,'0')+'Z'}
-function tempColor(v){
-  const stops=[
-    [-20,'#5f46b9'],[0,'#567bd9'],[20,'#52b8e8'],[35,'#7bd4bf'],
-    [50,'#d7e56a'],[65,'#f0ba4f'],[80,'#eb7a42'],[95,'#dd3d4f'],[110,'#8c284f']
-  ];
-  if(v<=stops[0][0])return stops[0][1];
-  for(let i=1;i<stops.length;i++)if(v<=stops[i][0])return stops[i][1];
-  return stops.at(-1)[1];
+function layerFor(day,lead,src){const slot=day?.leads?.[String(lead)];return src==='ndfd'?slot?.ndfd:src==='det'?slot?.nbm?.det:slot?.nbm?.percentiles?.[src]}
+function scopeNode(p){return S.scope==='land'?p.land:S.scope==='marine'?p.marine:!!(p.land||p.marine)}
+function active(group,value){document.querySelectorAll('[data-'+group+']').forEach(e=>e.classList.toggle('active',e.dataset[group]===String(value)))}
+function selDates(){
+ let dates=Object.keys(currentDays()||{}).sort().reverse();
+ if(!dates.length)dates=Object.keys(S.current?.products?.[S.product]||{}).sort().reverse();
+ const el=$('date');const old=S.date;
+ el.innerHTML='';
+ for(const d of dates){const op=document.createElement('option');op.value=d;op.textContent=UTC(d);el.append(op)}
+ S.date=dates.includes(old)?old:dates[0]||null;el.value=S.date||'';
 }
-function currentBlock(){
-  return state.data?.products?.[state.product]?.[state.valid]||null;
+function colors(v,isError){
+ if(isError){const stops=[[-20,'#3d6cb8'],[-12,'#6ca8e1'],[-5,'#b6dced'],[0,'#eeeeee'],[5,'#f9cda3'],[12,'#ed8755'],[20,'#bd3845']];return gradient(v,stops)}
+ return gradient(v,[[-20,'#5748b6'],[0,'#5075cc'],[20,'#4db5df'],[35,'#7ed3bd'],[50,'#e6e46f'],[65,'#f5b34e'],[80,'#e86d42'],[95,'#c93c55']])
 }
-function currentLayer(){
-  const b=currentBlock(); if(!b)return null;
-  if(state.source==='ndfd')return b.ndfd;
-  const run=b.nbm?.[state.cycle];
-  if(!run?.available)return null;
-  if(state.source==='det')return run.det;
-  return run.percentiles?.[state.source]||null;
+function gradient(v,stops){if(v<=stops[0][0])return stops[0][1];for(let i=1;i<stops.length;i++)if(v<=stops[i][0]){const [a,ca]=stops[i-1],[b,cb]=stops[i];const t=(v-a)/(b-a);const h=c=>[1,3,5].map(j=>parseInt(c.substring(j,j+2),16));const x=h(ca),y=h(cb);return 'rgb('+x.map((n,j)=>Math.round(n+(y[j]-n)*t)).join(',')+')'}return stops.at(-1)[1]}
+function prepareCanvas(canvas){const rect=canvas.getBoundingClientRect(),ratio=devicePixelRatio||1;const w=Math.max(1,rect.width),h=Math.max(1,rect.height);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);const g=canvas.getContext('2d');g.setTransform(ratio,0,0,ratio,0,0);return {g,w,h}}
+function view(b,w,h){
+ let bounds=b||[-89.5,29,-86.5,32.5];
+ let west=bounds[0],south=bounds[1],east=bounds[2],north=bounds[3];
+ const cos=Math.cos(30.5*Math.PI/180);
+ const sx=(east-west)*cos,sy=north-south;const scale=Math.min((w-48)/(sx||1),(h-48)/(sy||1))*S.zoom;
+ const ctr=S.center||[(west+east)/2,(south+north)/2];
+ const map=(lon,lat)=>[w/2+(lon-ctr[0])*cos*scale,h/2-(lat-ctr[1])*scale];
+ return {map,scale,cos,center:ctr};
 }
-function pointIncluded(p){
-  if(state.scope==='land')return p.land;
-  if(state.scope==='marine')return p.marine;
-  return p.land||p.marine;
+function eachRing(geom,action){
+ if(!geom)return;
+ let c=geom.coordinates||[];
+ if(geom.type==='Polygon')c=[c];
+ if(geom.type!=='Polygon'&&geom.type!=='MultiPolygon')return;
+ for(const poly of c)for(const ring of poly)action(ring)
 }
-function setActive(selector,key,value){
-  document.querySelectorAll(selector).forEach(el=>el.classList.toggle('active',el.dataset[key]===value));
+function traceGeo(g,geom,project){
+ eachRing(geom,ring=>{if(!ring.length)return;g.moveTo(...project(ring[0][0],ring[0][1]));for(let i=1;i<ring.length;i++)g.lineTo(...project(ring[i][0],ring[i][1]));g.closePath()});
 }
-function populateValid(){
-  const sel=document.getElementById('validSelect');
-  const keys=Object.keys(state.data.products[state.product]||{}).sort();
-  sel.innerHTML=keys.map(k=>'<option value="'+k+'">'+isoLabel(k)+'</option>').join('');
-  if(!keys.includes(state.valid))state.valid=keys.find(k=>state.data.products[state.product][k]?.ndfd)||keys[0]||null;
-  sel.value=state.valid||'';
-}
-function populateCycles(){
-  const div=document.getElementById('cycleButtons');
-  const cycles=state.data.cycles||[];
-  if(!cycles.includes(state.cycle))state.cycle=cycles.at(-1)||null;
-  div.innerHTML=cycles.map(c=>'<button class="btn '+(c===state.cycle?'active':'')+'" data-cycle="'+c+'">'+cycleHour(c)+'</button>').join('');
-  div.querySelectorAll('button').forEach(b=>b.onclick=()=>{state.cycle=b.dataset.cycle;populateCycles();render();});
-}
-function drawBoundaries(){
-  boundaryLayer.clearLayers();
-  const styleLand={color:'#b6d9ef',weight:1,opacity:.45,fill:false};
-  const styleMarine={color:'#57aee8',weight:1,opacity:.35,fill:false,dashArray:'5 4'};
-  if(state.scope!=='marine')L.geoJSON(state.data.boundaries.land,{style:styleLand}).addTo(boundaryLayer);
-  if(state.scope!=='land')L.geoJSON(state.data.boundaries.marine,{style:styleMarine}).addTo(boundaryLayer);
-}
-function drawTemps(layer){
-  tempLayer.clearLayers(); if(!layer)return;
-  const vals=layer.values||[];
-  state.data.points.forEach((p,i)=>{
-    const v=vals[i]; if(v==null||!pointIncluded(p))return;
-    L.circleMarker([p.lat,p.lon],{
-      renderer:canvasRenderer,radius:5,stroke:false,fill:true,fillOpacity:.78,fillColor:tempColor(v)
-    }).bindTooltip(v.toFixed(1)+'°F',{direction:'top'}).addTo(tempLayer);
-  });
-}
-function sourceName(){
-  if(state.source==='ndfd')return 'Official NDFD';
-  if(state.source==='det')return 'NBM Deterministic';
-  return 'NBM P'+state.source;
-}
-function renderStats(layer){
-  const s=layer?.stats?.[state.scope];
-  const ids=['mean','median','min','max','sp10','sp90','samples'];
-  if(!s){ids.forEach(id=>document.getElementById(id).textContent='—');return}
-  document.getElementById('mean').textContent=s.mean.toFixed(1)+'°';
-  document.getElementById('median').textContent=s.median.toFixed(1)+'°';
-  document.getElementById('min').textContent=s.min.toFixed(1)+'°';
-  document.getElementById('max').textContent=s.max.toFixed(1)+'°';
-  document.getElementById('sp10').textContent=s.p10.toFixed(1)+'°';
-  document.getElementById('sp90').textContent=s.p90.toFixed(1)+'°';
-  document.getElementById('samples').textContent=s.n;
-}
-function renderChart(){
-  const block=currentBlock(); if(!block)return;
-  const labels=[], vals=[];
-  if(block.ndfd?.stats?.[state.scope]){labels.push('NDFD');vals.push(block.ndfd.stats[state.scope].mean)}
-  for(const c of state.data.cycles){
-    const r=block.nbm?.[c]; if(!r?.available)continue;
-    let l=state.source==='ndfd'||state.source==='det'?r.det:r.percentiles?.[state.source];
-    if(l?.stats?.[state.scope]){labels.push(cycleHour(c));vals.push(l.stats[state.scope].mean)}
+let mapRender=null;
+function renderMap(){
+ const canvas=$('mapCanvas'),{g,w,h}=prepareCanvas(canvas);
+ g.fillStyle='#071723';g.fillRect(0,0,w,h);
+ const data=S.history||S.current;
+ if(!data?.points?.length){g.fillStyle='#bdd8e8';g.fillText('No NOAA grid data available',30,40);return}
+ const V=view(data.bounds,w,h),points=data.points,layer=selectedLayer();
+ const error=S.mapmode==='error'&&S.source!=='analysis';const vals=error?layer?.error?.values:layer?.values;
+ const dx=(data.sampleSpacingDegrees||S.current?.sampleSpacingDegrees||.075)*V.cos*V.scale;
+ const dy=(data.sampleSpacingDegrees||S.current?.sampleSpacingDegrees||.075)*V.scale;
+ let n=0;
+ if(vals?.length===points.length){
+  for(let i=0;i<points.length;i++){
+   const p=points[i],v=vals[i];if(v==null||!finite(v)||!scopeNode(p))continue;
+   const [x,y]=V.map(p.lon,p.lat);g.fillStyle=colors(v,error);
+   g.fillRect(x-dx/2-.4,y-dy/2-.4,dx+.8,dy+.8);n++;
   }
-  if(!labels.length){if(chart){chart.destroy();chart=null}return;}
-  if(chart)chart.destroy();
-  chart=new Chart(document.getElementById('cycleChart'),{
-    type:'line',
-    data:{labels,datasets:[{label:'Mean °F',data:vals,borderWidth:3,pointRadius:5,tension:.25}]},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{labels:{color:'#dcefff',font:{family:'Poppins',size:10}}}},
-      scales:{
-        x:{ticks:{color:'#a9c9df',font:{family:'Poppins',size:9}},grid:{color:'rgba(120,160,190,.12)'}},
-        y:{ticks:{color:'#a9c9df',font:{family:'Poppins',size:9},callback:v=>v+'°'},grid:{color:'rgba(120,160,190,.12)'}}
-      }
-    }
-  });
+ }else{g.fillStyle='#b9dded';g.font='13px Poppins';g.fillText('No matching gridded field for this selection',24,44)}
+ const boundaries=data.boundaries||{};
+ const layers=[['states','stateCheck','#819dad',1],['counties','countyCheck','#c2d5da',.65],['cwa','cwaCheck','#f7faff',2]];
+ for(const [name,check,color,width] of layers){
+  if(!$(check).checked)continue;
+  let collection=boundaries[name];
+  if(!collection?.features?.length && name==='counties')collection=boundaries.land;
+  if(!collection?.features?.length && name==='cwa')collection=boundaries.land;
+  if(!collection?.features?.length)continue;
+  g.beginPath();g.lineWidth=width;g.strokeStyle=color;
+  for(const f of collection.features)traceGeo(g,f.geometry,V.map);
+  g.stroke();
+ }
+ g.fillStyle='#c8e4f5';g.font='10px Poppins';
+ g.fillText('WFO MOB · NOAA gridded forecast',12,h-12);
+ mapRender={V,points,vals,canvas,n};
+ $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+sourceName();
+ $('mapMeta').textContent=(S.date?UTC(S.date):'—')+' · '+S.scope.toUpperCase()+' · '+n+' colored grid cells'+(error?' · Forecast minus analysis':'');
+ $('coldLabel').textContent=error?'Cold bias':'Colder';
+ $('warmLabel').textContent=error?'Warm bias':'Warmer';
 }
-function render(){
-  const layer=currentLayer(), block=currentBlock(), run=block?.nbm?.[state.cycle];
-  drawBoundaries();drawTemps(layer);renderStats(layer);
-  try{renderChart();}catch(e){console.warn('Chart error',e);}
-  setActive('[data-product]','product',state.product);
-  setActive('[data-scope]','scope',state.scope);
-  document.querySelectorAll('[data-source]').forEach(el=>el.classList.toggle('active',el.dataset.source===state.source));
-
-  const prod=state.product==='mint'?'Minimum Temperature':'Maximum Temperature';
-  const scope=state.scope[0].toUpperCase()+state.scope.slice(1);
-  document.getElementById('mapTitle').textContent=prod+' · '+sourceName();
-  document.getElementById('mapSub').textContent=(state.valid?isoLabel(state.valid):'')+' · '+scope+(state.source!=='ndfd'&&state.cycle?' · '+cycleHour(state.cycle)+' run':'');
-  document.getElementById('availability').textContent=layer?'':((state.source!=='ndfd'&&state.source!=='det')?'The requested percentile is unavailable at this exact 00Z/12Z period from the selected NBM QMD messages. No substitute is plotted.':'No gridded guidance for this run and valid period. Try another NBM cycle or NDFD.');
-  const detail=[];
-  detail.push('<b>Layer:</b> '+sourceName());
-  detail.push('<b>Valid:</b> '+(state.valid?isoLabel(state.valid):'—'));
-  if(state.source!=='ndfd'){
-    detail.push('<b>Cycle:</b> '+(state.cycle?new Date(state.cycle).toISOString().replace('.000',''):'—'));
-    detail.push('<b>Lead:</b> '+(run?.leadHours!=null?'F'+String(run.leadHours).padStart(3,'0'):'—'));
+function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM Deterministic':S.source==='analysis'?'URMA analysis':'NBM P'+S.source}
+function metricFor(layer,metric){
+ if(!layer)return null;
+ if(metric==='mean')return layer.stats?.[S.scope]?.mean??null;
+ return layer.error?.stats?.[S.scope]?.[metric]??null;
+}
+function graphLine(g,arr,project,color){
+ g.strokeStyle=color;g.lineWidth=2.5;g.beginPath();let open=false;
+ for(let i=0;i<arr.length;i++){
+  const v=arr[i];if(!finite(v)){open=false;continue}
+  const [x,y]=project(i,v);if(!open){g.moveTo(x,y);open=true}else g.lineTo(x,y)
+ }g.stroke();
+ g.fillStyle=color;
+ for(let i=0;i<arr.length;i++)if(finite(arr[i])){const [x,y]=project(i,arr[i]);g.beginPath();g.arc(x,y,3.5,0,Math.PI*2);g.fill()}
+}
+function renderGraph(){
+ const {g,w,h}=prepareCanvas($('graphCanvas'));
+ g.fillStyle='#071723';g.fillRect(0,0,w,h);
+ const days=currentDays();
+ let labels=[],series=[];
+ const sources=['ndfd','det','10','25','50','75','90'];
+ if(days&&Object.keys(days).length){
+  if(S.chartmode==='lead'){
+   const day=currentRecord();labels=['60','48','36','24','12'].map(n=>'-'+n+'h');
+   for(const src of sources){
+    series.push({src,color:C[src],values:[60,48,36,24,12].map(n=>metricFor(layerFor(day,n,src),S.metric))});
+   }
+  }else{
+   const keys=Object.keys(days).sort();labels=keys.map(x=>x.slice(5,10));
+   for(const src of sources){series.push({src,color:C[src],values:keys.map(k=>metricFor(layerFor(days[k],S.lead,src),S.metric))})}
   }
-  detail.push('<b>Scope:</b> '+scope);
-  if(layer?.meta?.stepRange)detail.push('<b>GRIB step:</b> '+layer.meta.stepRange);
-  document.getElementById('layerDetail').innerHTML=detail.join('<br>');
+ }else{
+   const f=currentForward();labels=S.current?.cycles?.map(x=>x.slice(5,16).replace('T',' '))||[];
+   series=[
+    {src:'det',color:C.det,values:(S.current?.cycles||[]).map(c=>metricFor(f?.nbm?.[c]?.det,S.metric))},
+    {src:'ndfd',color:C.ndfd,values:labels.map(()=>metricFor(f?.ndfd,S.metric))}
+   ];
+ }
+ const all=series.flatMap(s=>s.values.filter(finite));
+ const pad={l:57,r:18,t:40,b:56},pw=Math.max(5,w-pad.l-pad.r),ph=Math.max(5,h-pad.t-pad.b);
+ if(!all.length){g.fillStyle='#b8d8ec';g.font='13px Poppins';g.fillText('No compatible data for this graph metric or period',20,70);return}
+ let min=Math.min(...all),max=Math.max(...all),span=Math.max(3,max-min),lo=min-span*.17,hi=max+span*.17;
+ if(S.metric==='mae')lo=Math.min(0,lo);
+ const project=(i,v)=>[pad.l+pw*(labels.length<=1?.5:i/(labels.length-1)),pad.t+ph*(hi-v)/(hi-lo)];
+ g.strokeStyle='#28445a';g.lineWidth=1;g.fillStyle='#a6c6d9';g.font='10px Poppins';
+ for(let i=0;i<=5;i++){const v=lo+(hi-lo)*i/5;const y=project(0,v)[1];g.beginPath();g.moveTo(pad.l,y);g.lineTo(w-pad.r,y);g.stroke();g.fillText(v.toFixed(1)+'°',8,y+4)}
+ for(let i=0;i<labels.length;i++){const x=project(i,lo)[0];g.fillText(labels[i],Math.max(0,x-16),h-28)}
+ let count=0;
+ for(const row of series){if(!row.values.some(finite))continue;graphLine(g,row.values,project,row.color);count++}
+ g.font='10px Poppins';let x=pad.l,y=17;
+ for(const row of series){if(!row.values.some(finite))continue;const label=row.src==='ndfd'?'NDFD':row.src==='det'?'NBM Det':'P'+row.src;
+ g.fillStyle=row.color;g.fillRect(x,y-8,11,4);g.fillStyle='#d9eafa';g.fillText(label,x+15,y-2);x+=label.length*7+32;if(x>w-80){x=pad.l;y+=15}}
+ $('graphTitle').textContent=S.chartmode==='lead'?'One Verifying Night · Forecast Lead Evolution':'Multiple Nights · Fixed Lead (-'+S.lead+'h)';
+ $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series';
 }
-async function init(){
-  try{
-    const r=await fetch('data/guidance.json?'+Date.now()); if(!r.ok)throw new Error('HTTP '+r.status);
-    state.data=await r.json();
-    const gb=new Date(state.data.generatedUtc).toLocaleString('en-US',{timeZone:'UTC',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
-    document.getElementById('status').innerHTML='<span class="pill">NBM + NDFD</span><br>Updated '+gb+' UTC · '+state.data.points.length+' MOB sample points';
-    state.product='mint'; populateValid(); populateCycles();
-    const b=state.data.bounds; if(b?.length===4)map.fitBounds([[b[1],b[0]],[b[3],b[2]]],{padding:[10,10]});
-    document.getElementById('errors').textContent=(state.data.errors||[]).slice(0,12).join('\n');
-    render();
-    setTimeout(()=>map.invalidateSize(),100);
-  }catch(e){
-    document.getElementById('status').textContent='Guidance data unavailable';
-    document.getElementById('availability').textContent='guidance.json has not been generated yet: '+e.message;
-  }
+function populateStats(){
+ const layer=selectedLayer(),scope=S.scope;
+ const stat=layer?.stats?.[scope],err=layer?.error?.stats?.[scope];
+ const write=(id,v,suffix='')=>$(id).textContent=v==null?'—':String(v)+suffix;
+ write('mean',stat?.mean,'°');write('min',stat?.min,'°');write('max',stat?.max,'°');write('n',stat?.n);
+ write('mae',err?.mae,'°');write('bias',err?.bias,'°');write('truth',!!currentRecord()?.analysis?'Yes':'No');
+ write('period',layer?.meta?.stepRange||'—');
+ const slot=currentSlot();
+ const m=layer?.meta||{};
+ $('details').textContent=[
+ 'Guidance: '+sourceName(),
+ 'Selected valid: '+(S.date?UTC(S.date):'—'),
+ 'Nominal lead: -'+S.lead+'h',
+ slot?'NBM initialization: '+UTC(slot.nbmCycleUtc)+' (actual age '+slot.actualLeadHours+' hours)':'Historical run not available in forward-only data.',
+ slot?'NDFD reference cutoff: '+UTC(slot.ndfdReferenceUtc):'',
+ m.issuedUtc?'Actual guidance issue/init: '+UTC(m.issuedUtc):'',
+ m.validUtc?'Grid validity: '+UTC(m.validUtc):'',
+ m.stepRange?'GRIB statistical interval: '+m.stepRange:'',
+ m.source?'Source: '+m.source:'',
+ 'NDFD 00Z/12Z refers to snapshots, not the same thing as MinT 12Z / MaxT 00Z validity.',
+ 'Verification metrics appear only when an exact-time gridded URMA analysis was found. Percentiles will remain absent unless valid QMD messages exist.'
+ ].filter(Boolean).join('  •  ');
 }
-document.querySelectorAll('[data-product]').forEach(b=>b.onclick=()=>{state.product=b.dataset.product;populateValid();render();});
-document.querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{state.scope=b.dataset.scope;render();});
-document.querySelectorAll('[data-source]').forEach(b=>b.onclick=()=>{state.source=b.dataset.source;render();});
-document.getElementById('validSelect').onchange=e=>{state.valid=e.target.value;render();};
-init();
-</script>
-</body>
-</html>
+function update(){
+ active('prod',S.product);active('scope',S.scope);active('source',S.source);
+ active('chartmode',S.chartmode);active('metric',S.metric);active('mapmode',S.mapmode);
+ $('lead').value=String(S.lead);
+ const layer=selectedLayer(),slot=currentSlot();
+ let errors=[];
+ if(!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
+ if(!layer)errors.push(sourceName()+' is not available for this valid date and selected lead. No synthetic values are plotted.');
+ if(S.mapmode==='error'&&!layer?.error?.values)errors.push('Error map requires an available URMA analysis for this matching period.');
+ if(S.metric!=='mean'&&!currentRecord()?.analysis)errors.push('MAE/bias graphs require a matching verifying analysis.');
+ $('alert').textContent=errors.join('\n');
+ populateStats();renderMap();renderGraph();
+}
+function changeProduct(x){S.product=x;selDates();update()}
+function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
+evt('[data-prod]','prod',x=>{S.product=x;selDates()});
+evt('[data-scope]','scope',x=>S.scope=x);
+evt('[data-source]','source',x=>{S.source=x;if(x==='analysis')S.mapmode='forecast'});
+evt('[data-chartmode]','chartmode',x=>S.chartmode=x);
+evt('[data-metric]','metric',x=>S.metric=x);
+evt('[data-mapmode]','mapmode',x=>S.mapmode=x);
+$('date').addEventListener('change',e=>{S.date=e.target.value;update()});
+$('lead').addEventListener('change',e=>{S.lead=+e.target.value;update()});
+for(const name of ['stateCheck','countyCheck','cwaCheck'])$(name).addEventListener('change',renderMap);
+let dragging=false,last=null;
+const mc=$('mapCanvas');
+mc.addEventListener('pointerdown',e=>{dragging=true;last=[e.clientX,e.clientY];mc.setPointerCapture(e.pointerId)});
+mc.addEventListener('pointerup',()=>{dragging=false;last=null});
+mc.addEventListener('pointermove',e=>{
+ if(dragging&&last&&mapRender){const dx=e.clientX-last[0],dy=e.clientY-last[1];const v=mapRender.V;
+ S.center=[v.center[0]-dx/(v.scale*v.cos),v.center[1]+dy/v.scale];last=[e.clientX,e.clientY];renderMap();return}
+ const t=$('mapTooltip'),rect=mc.getBoundingClientRect(),v=mapRender?.V,pts=mapRender?.points,vals=mapRender?.vals;
+ if(!v||!pts||!vals){t.style.display='none';return}
+ const x=e.clientX-rect.left,y=e.clientY-rect.top;
+ let best=null,dist=Infinity;
+ for(let i=0;i<pts.length;i++){if(!scopeNode(pts[i])||!finite(vals[i]))continue;const [px,py]=v.map(pts[i].lon,pts[i].lat),d=(px-x)**2+(py-y)**2;if(d<dist){best=i;dist=d}}
+ if(best!=null&&dist<450){t.style.display='block';t.style.left=Math.min(rect.width-110,x+12)+'px';t.style.top=Math.max(2,y-27)+'px';t.textContent=vals[best].toFixed(1)+'°F'}else t.style.display='none';
+});
+mc.addEventListener('pointerleave',()=>{$('mapTooltip').style.display='none'});
+mc.addEventListener('wheel',e=>{e.preventDefault();S.zoom=Math.max(.65,Math.min(7,S.zoom*(e.deltaY>0?.86:1.16)));renderMap()},{passive:false});
+mc.addEventListener('dblclick',()=>{S.center=null;S.zoom=1;renderMap()});
+window.addEventListener('resize',()=>{renderMap();renderGraph()});
+async function fetchData(path){const r=await fetch(path+'?v='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error(path+' HTTP '+r.status);return r.json()}
+(async()=>{
+ const out=await Promise.allSettled([fetchData('data/guidance.json'),fetchData('data/history.json')]);
+ if(out[0].status==='fulfilled')S.current=out[0].value;
+ if(out[1].status==='fulfilled'&&out[1].value?.days)S.history=out[1].value;
+ if(!S.history&&!S.current){$('status').textContent='No data published';$('alert').textContent='Could not load either NOAA dataset. Check the latest GitHub Actions build.';renderMap();return}
+ const data=S.history||S.current;
+ $('status').textContent=(S.history?'Historical archive ready':'Forward-only fallback')+' · '+data.points.length+' NOAA grid samples · updated '+UTC(data.generatedUtc);
+ selDates();update();
+})();
+</script></body></html>
