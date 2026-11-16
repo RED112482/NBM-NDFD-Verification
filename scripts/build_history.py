@@ -61,8 +61,10 @@ def grid_values(grib, points):
     scl = math.cos(math.radians(float(np.mean(yy))))
     coords = np.column_stack((local_lat, local_lon*scl))
     query = np.column_stack((yy, xx*scl))
-    index = cKDTree(coords).query(query, k=1)[1]
-    chosen = np.asarray(vals[mask][index], dtype=float)
+    distances, indices = cKDTree(coords).query(query, k=4)
+    weights = 1.0 / np.maximum(distances, 1e-9) ** 2
+    weights /= weights.sum(axis=1, keepdims=True)
+    chosen = np.sum(np.asarray(vals[mask][indices], dtype=float) * weights, axis=1)
     return [round(float(v), 1) if np.isfinite(v) else None for v in chosen]
 
 
