@@ -130,7 +130,7 @@ function selDates(){
  const el=$('date');const old=S.date;
  el.innerHTML='';
  for(const d of dates){const op=document.createElement('option');op.value=d;op.textContent=UTC(d);el.append(op)}
- const analyzed=dates.find(k=>currentDays()?.[k]?.analysis);S.date=dates.includes(old)?old:(analyzed||dates[0]||null);el.value=S.date||'';
+ const analyzed=dates.find(k=>currentDays()?.[k]?.analysis||currentDays()?.[k]?.rtma);S.date=dates.includes(old)?old:(analyzed||dates[0]||null);el.value=S.date||'';
 }
 function colors(v,isError){
  if(isError){const stops=[[-20,'#3d6cb8'],[-12,'#6ca8e1'],[-5,'#b6dced'],[0,'#eeeeee'],[5,'#f9cda3'],[12,'#ed8755'],[20,'#bd3845']];return gradient(v,stops)}
@@ -203,7 +203,7 @@ function renderMap(){
  const data=S.history||S.current;
  if(!data?.points?.length){g.fillStyle='#bdd8e8';g.fillText('No NOAA grid data available',30,40);return}
  const V=view(data.bounds,w,h),points=data.points,layer=selectedLayer();
- const error=S.mapmode==='error'&&S.source!=='analysis';const vals=error?layer?.error?.values:layer?.values;
+ const error=S.mapmode==='error'&&!['analysis','rtma'].includes(S.source);const vals=error?layer?.error?.values:layer?.values;
  const dx=(data.sampleSpacingDegrees||S.current?.sampleSpacingDegrees||.075)*V.cos*V.scale;
  const dy=(data.sampleSpacingDegrees||S.current?.sampleSpacingDegrees||.075)*V.scale;
  let n=0;
@@ -295,7 +295,7 @@ function populateStats(){
  const stat=layer?.stats?.[scope],err=layer?.error?.stats?.[scope];
  const write=(id,v,suffix='')=>$(id).textContent=v==null?'—':String(v)+suffix;
  write('mean',stat?.mean,'°');write('min',stat?.min,'°');write('max',stat?.max,'°');write('n',stat?.n);
- write('mae',err?.mae,'°');write('bias',err?.bias,'°');write('truth',!!currentRecord()?.analysis?'URMA':currentRecord()?.rtma?'RTMA':'No');
+ write('mae',err?.mae,'°');write('bias',err?.bias,'°');write('truth',!!currentRecord()?.analysis?'URMA':currentRecord()?.rtma?'RTMA fallback':'No');
  write('period',layer?.meta?.stepRange||'—');
  const slot=currentSlot();
  const m=layer?.meta||{};
@@ -305,6 +305,7 @@ function populateStats(){
  'NDFD snapshot lead: -'+S.lead+'h',
  slot?'NBM initialization: '+UTC(slot.nbmCycleUtc)+' (actual age '+slot.actualLeadHours+' hours)':'Historical run not available in forward-only data.',
  slot?'NDFD reference cutoff: '+UTC(slot.ndfdReferenceUtc):'',
+ slot?.verificationSource?'Error verification uses: '+slot.verificationSource+' derived 12-hour extrema':'',
  m.issuedUtc?'Actual guidance issue/init: '+UTC(m.issuedUtc):'',
  m.validUtc?'Grid validity: '+UTC(m.validUtc):'',
  m.stepRange?'GRIB statistical interval: '+m.stepRange:'',
@@ -313,7 +314,7 @@ function populateStats(){
  slot?.nbm?.validOffsetHours&&S.source==='det'?'NBM valid time is +'+slot.nbm.validOffsetHours+'h from the conventional 00/12Z endpoint; not scored as exact verification.':'',
  (S.source!=='ndfd'&&S.source!=='det'&&S.source!=='analysis'&&S.source!=='rtma')?'QMD temperature percentiles cover 18h and may have a different valid endpoint than NDFD 12h extrema.':'',
  '00Z NDFD is paired with preceding 13Z NBM; 12Z NDFD is paired with preceding 01Z NBM. These are issuance snapshots; MinT 12Z / MaxT 00Z are forecast-valid endpoints.',
- 'Verification metrics appear only when an exact-time gridded URMA analysis was found. Percentiles will remain absent unless valid QMD messages exist.'
+ 'Error verification uses complete, 13-hourly-sample, 12-hour temperature extrema ending at 12Z/00Z, from URMA when available or RTMA as a labeled fallback. These extrema are derived, not native URMA MinT/MaxT. Missing hourly data are not filled or scored.'
  ].filter(Boolean).join('  •  ');
 }
 function update(){
@@ -324,8 +325,8 @@ function update(){
  let errors=[];
  if(!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
  if(!layer)errors.push(sourceName()+' is not available for this valid date and selected lead. No synthetic values are plotted.');
- if(S.mapmode==='error'&&!layer?.error?.values)errors.push('Error map requires an available URMA analysis for this matching period.');
- if(S.metric!=='mean'&&!currentRecord()?.analysis)errors.push('MAE/bias graphs require a matching verifying analysis.');
+ if(S.mapmode==='error'&&!layer?.error?.values)errors.push('Error map requires a complete URMA/RTMA derived extrema analysis for this matching period.');
+ if(S.metric!=='mean'&&!currentRecord()?.analysis&&!currentRecord()?.rtma)errors.push('MAE/bias graphs require complete URMA or RTMA hourly-derived verifying extrema.');
  $('alert').textContent=errors.join('\n');
  populateStats();renderMap();renderGraph();
 }
