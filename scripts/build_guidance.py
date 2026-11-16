@@ -164,6 +164,10 @@ def fetch_boundaries():
         except Exception as exc:
             print(f"WARNING: {name} outlines unavailable: {exc}")
             outlines[name] = {"type": "FeatureCollection", "features": []}
+    # Keep the original high-resolution official zones for analysis/sampling.
+    # Rendering simplification must NEVER change which grid nodes are land/marine.
+    full_land = json.loads(json.dumps(land))
+    full_marine = json.loads(json.dumps(marine))
     # Clip and simplify outlines for the MOB map before sending them to browsers.
     # Keeping entire AL/FL/MS polygon coastlines can exceed 10 MB and stall maps.
     wb,sb,eb,nb=feature_bounds((land.get("features") or [])+(marine.get("features") or []))
@@ -180,7 +184,7 @@ def fetch_boundaries():
             except Exception as exc:
                 print("WARNING: couldn't simplify boundary:",str(exc)[:160])
         collection["features"]=compact
-    return land, marine, outlines
+    return land, marine, outlines, full_land, full_marine
 
 
 def build_sample_points(land, marine):
@@ -514,8 +518,8 @@ def layer_payload(grib, sample_points, source=None):
 def main():
     DATA.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    land, marine, outlines = fetch_boundaries()
-    sample_points, bounds = build_sample_points(land, marine)
+    land, marine, outlines, raw_land, raw_marine = fetch_boundaries()
+    sample_points, bounds = build_sample_points(raw_land, raw_marine)
     cycles = latest_cycle_occurrences(now)
     targets = valid_targets(now)
 
