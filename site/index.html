@@ -173,7 +173,7 @@ function renderMap(){
    g.fillRect(x-dx/2-.4,y-dy/2-.4,dx+.8,dy+.8);n++;
   }
  }else{g.fillStyle='#b9dded';g.font='13px Poppins';g.fillText('No matching gridded field for this selection',24,44)}
- const boundaries=data.boundaries||{};
+ const boundaries=(S.current?.boundaries?.counties?.features?.length ? S.current.boundaries : data.boundaries)||{};
  const layers=[['states','stateCheck','#819dad',1],['counties','countyCheck','#c2d5da',.65],['cwa','cwaCheck','#f7faff',2]];
  for(const [name,check,color,width] of layers){
   if(!$(check).checked)continue;
