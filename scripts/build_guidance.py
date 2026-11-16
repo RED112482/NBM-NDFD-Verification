@@ -462,8 +462,12 @@ def sample_grib(grib, sample_points):
     scale = math.cos(math.radians(float(np.mean(plat))))
     tree = cKDTree(np.column_stack((sy, sx * scale)))
     query = np.column_stack((plat, plon * scale))
-    ix = tree.query(query, k=1)[1]
-    sampled = sv[ix]
+    # Inverse-distance interpolation from the four closest *native* GRIB
+    # nodes avoids nearest-neighbor stair-stepping / artificial banding.
+    distances, indices = tree.query(query, k=4)
+    weights = 1.0 / np.maximum(distances, 1e-9) ** 2
+    weights /= weights.sum(axis=1, keepdims=True)
+    sampled = np.sum(sv[indices] * weights, axis=1)
     return [round(float(v), 1) if np.isfinite(v) else None for v in sampled]
 
 
