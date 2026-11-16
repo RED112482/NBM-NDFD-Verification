@@ -231,7 +231,7 @@ def run():
     latest_maxt=now.date() if now.hour>=3 else now.date()-timedelta(days=1)
     history={
       "schemaVersion":1,"generatedUtc":iso(now),"office":WFO,
-      "points":points,"bounds":base["bounds"],"boundaries":base["boundaries"],
+      "points":points,"bounds":base["bounds"],"boundaries":{},
       "leads":list(LEADS),"days":{"mint":{},"maxt":{}},
       "errors":[],"method":{
           "nbm":"01Z/13Z operational comparison: nominal lead 12h = actual 11h; 24h = actual 23h.",
