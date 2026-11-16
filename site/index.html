@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NBM / NDFD Temperature Guidance Viewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root{
+      --bg:#07131e;--panel:#102237;--panel2:#0b1b2b;--line:#294c69;
+      --text:#f5fbff;--muted:#9fc4df;--cyan:#a9e9ff;--blue:#50b9ff;
+      --active:#d6f5ff;--activeText:#07131e;--good:#53df9b;--warn:#ffd058;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--text);font-family:Poppins,system-ui,sans-serif}
+    button,select{font:inherit}
+    .shell{max-width:1800px;margin:auto;padding:14px}
+    .header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:12px}
+    .title h1{font-size:24px;line-height:1.05;margin:0;font-weight:800;letter-spacing:-.03em}
+    .title p{margin:5px 0 0;color:var(--muted);font-size:12px}
+    .status{font-size:11px;color:var(--muted);text-align:right}
+    .grid{display:grid;grid-template-columns:360px minmax(0,1fr) 330px;gap:12px;align-items:start}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:12px;box-shadow:0 10px 28px rgba(0,0,0,.15)}
+    .panel h2{font-size:13px;margin:0 0 9px;text-transform:uppercase;letter-spacing:.02em}
+    .label{font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;margin:12px 0 6px}
+    .seg{display:grid;gap:6px}
+    .seg.two{grid-template-columns:1fr 1fr}.seg.three{grid-template-columns:repeat(3,1fr)}
+    .seg.four{grid-template-columns:repeat(4,1fr)}
+    .btn{border:1px solid #37607f;background:#071a2a;color:var(--text);border-radius:8px;padding:9px 8px;font-size:11px;font-weight:700;cursor:pointer}
+    .btn:hover{border-color:#79cfff}.btn.active{background:var(--active);color:var(--activeText);border-color:var(--active)}
+    select{width:100%;background:#071a2a;color:var(--text);border:1px solid #37607f;border-radius:8px;padding:9px;font-size:11px}
+    .source-card{border:1px solid #31546e;border-radius:10px;padding:9px;margin-top:7px;background:#0a1b2b;cursor:pointer}
+    .source-card.active{border-color:#bceeff;box-shadow:inset 0 0 0 1px #bceeff}
+    .source-card strong{font-size:12px}.source-card small{display:block;color:var(--muted);font-size:9px;margin-top:2px}
+    #map{height:650px;border-radius:10px;background:#0a1722}
+    .map-panel{padding:8px}
+    .map-top{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:3px 4px 8px}
+    .map-title{font-size:13px;font-weight:800}.map-sub{font-size:10px;color:var(--muted)}
+    .legend{display:flex;align-items:center;gap:7px;font-size:9px;color:var(--muted)}
+    .legend-bar{height:8px;width:170px;border-radius:8px;background:linear-gradient(90deg,#5f46b9,#567bd9,#52b8e8,#7bd4bf,#d7e56a,#f0ba4f,#eb7a42,#dd3d4f,#8c284f)}
+    .cards{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+    .metric{background:#081a2a;border:1px solid #31546e;border-radius:9px;padding:8px}
+    .metric span{display:block;font-size:9px;color:var(--muted)}.metric b{font-size:18px}
+    .wide{grid-column:1/-1}
+    canvas{width:100%!important;height:230px!important}
+    .detail{margin-top:10px;border-top:1px solid #294c69;padding-top:9px;font-size:10px;color:var(--muted);line-height:1.55}
+    .detail b{color:var(--text)}
+    .notice{font-size:10px;color:var(--warn);margin-top:8px}
+    .errors{max-height:120px;overflow:auto;font-size:9px;color:#f4b6b6;margin-top:8px}
+    .leaflet-tooltip{font-family:Poppins,sans-serif;font-size:11px}
+    .leaflet-control-attribution{font-size:8px!important}
+    .pill{display:inline-block;padding:2px 6px;border-radius:999px;background:#09253b;border:1px solid #31546e;color:var(--cyan);font-size:9px;font-weight:700}
+    @media(max-width:1180px){.grid{grid-template-columns:320px 1fr}.right{grid-column:1/-1}.right .panel{max-width:none}.cards{grid-template-columns:repeat(4,1fr)}}
+    @media(max-width:800px){.grid{grid-template-columns:1fr}.right{grid-column:auto}.header{align-items:flex-start;flex-direction:column}.status{text-align:left}#map{height:520px}.cards{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <div class="header">
+    <div class="title">
+      <h1>NBM / NDFD Temperature Guidance</h1>
+      <p>WFO Mobile/Pensacola · deterministic + percentile guidance · spatial forecast evolution</p>
+    </div>
+    <div class="status" id="status">Loading guidance…</div>
+  </div>
+
+  <div class="grid">
+    <aside class="panel">
+      <h2>Forecast Controls</h2>
+
+      <div class="label">Temperature product</div>
+      <div class="seg two">
+        <button class="btn active" data-product="mint">Minimum T</button>
+        <button class="btn" data-product="maxt">Maximum T</button>
+      </div>
+
+      <div class="label">Verification area / sample</div>
+      <div class="seg three">
+        <button class="btn active" data-scope="land">Land</button>
+        <button class="btn" data-scope="marine">Marine</button>
+        <button class="btn" data-scope="both">Both</button>
+      </div>
+
+      <div class="label">Valid period</div>
+      <select id="validSelect"></select>
+
+      <div class="label">NBM cycle</div>
+      <div class="seg four" id="cycleButtons"></div>
+
+      <div class="label">Guidance layer</div>
+      <div id="sources">
+        <div class="source-card active" data-source="ndfd">
+          <strong>Official NDFD</strong>
+          <small>NWS gridded forecast</small>
+        </div>
+        <div class="source-card" data-source="det">
+          <strong>NBM Deterministic</strong>
+          <small>Selected 01/07/13/19Z cycle</small>
+        </div>
+        <div class="seg three" style="margin-top:7px">
+          <button class="btn" data-source="10">P10</button>
+          <button class="btn" data-source="25">P25</button>
+          <button class="btn" data-source="50">P50</button>
+          <button class="btn" data-source="75">P75</button>
+          <button class="btn" data-source="90">P90</button>
+        </div>
+      </div>
+
+      <div class="detail">
+        <b>Current phase:</b> guidance viewing, not verification. The same valid-time/run structure is being retained so future 6–12 hour trend and verification graphs can use this dataset directly.
+      </div>
+      <div class="notice" id="availability"></div>
+    </aside>
+
+    <main class="panel map-panel">
+      <div class="map-top">
+        <div>
+          <div class="map-title" id="mapTitle">Temperature guidance</div>
+          <div class="map-sub" id="mapSub"></div>
+        </div>
+        <div class="legend">
+          <span>Colder</span><div class="legend-bar"></div><span>Warmer</span>
+        </div>
+      </div>
+      <div id="map"></div>
+    </main>
+
+    <aside class="right">
+      <div class="panel">
+        <h2>Spatial Statistics</h2>
+        <div class="cards">
+          <div class="metric"><span>MEAN</span><b id="mean">—</b></div>
+          <div class="metric"><span>MEDIAN</span><b id="median">—</b></div>
+          <div class="metric"><span>MIN</span><b id="min">—</b></div>
+          <div class="metric"><span>MAX</span><b id="max">—</b></div>
+          <div class="metric"><span>P10</span><b id="sp10">—</b></div>
+          <div class="metric"><span>P90</span><b id="sp90">—</b></div>
+          <div class="metric wide"><span>GRID SAMPLES</span><b id="samples">—</b></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <h2>Cycle Evolution</h2>
+        <canvas id="cycleChart"></canvas>
+        <div class="detail">Mean forecast temperature over the selected land/marine sample for the same valid period. This is forecast evolution, not forecast error.</div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <h2>Layer Details</h2>
+        <div class="detail" id="layerDetail" style="margin-top:0;border-top:0;padding-top:0"></div>
+        <div class="errors" id="errors"></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+const state={data:null,product:'mint',scope:'land',valid:null,cycle:null,source:'ndfd'};
+const map=L.map('map',{preferCanvas:true,zoomControl:true}).setView([30.75,-87.65],7);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+  maxZoom:12,attribution:'© OpenStreetMap © CARTO'
+}).addTo(map);
+const canvasRenderer=L.canvas({padding:.4});
+let tempLayer=L.layerGroup().addTo(map), boundaryLayer=L.layerGroup().addTo(map), chart=null;
+
+function isoLabel(s){
+  const d=new Date(s);
+  return d.toLocaleString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+'Z';
+}
+function cycleHour(s){return String(new Date(s).getUTCHours()).padStart(2,'0')+'Z'}
+function tempColor(v){
+  const stops=[
+    [-20,'#5f46b9'],[0,'#567bd9'],[20,'#52b8e8'],[35,'#7bd4bf'],
+    [50,'#d7e56a'],[65,'#f0ba4f'],[80,'#eb7a42'],[95,'#dd3d4f'],[110,'#8c284f']
+  ];
+  if(v<=stops[0][0])return stops[0][1];
+  for(let i=1;i<stops.length;i++)if(v<=stops[i][0])return stops[i][1];
+  return stops.at(-1)[1];
+}
+function currentBlock(){
+  return state.data?.products?.[state.product]?.[state.valid]||null;
+}
+function currentLayer(){
+  const b=currentBlock(); if(!b)return null;
+  if(state.source==='ndfd')return b.ndfd;
+  const run=b.nbm?.[state.cycle];
+  if(!run?.available)return null;
+  if(state.source==='det')return run.det;
+  return run.percentiles?.[state.source]||null;
+}
+function pointIncluded(p){
+  if(state.scope==='land')return p.land;
+  if(state.scope==='marine')return p.marine;
+  return p.land||p.marine;
+}
+function setActive(selector,key,value){
+  document.querySelectorAll(selector).forEach(el=>el.classList.toggle('active',el.dataset[key]===value));
+}
+function populateValid(){
+  const sel=document.getElementById('validSelect');
+  const keys=Object.keys(state.data.products[state.product]||{}).sort();
+  sel.innerHTML=keys.map(k=>'<option value="'+k+'">'+isoLabel(k)+'</option>').join('');
+  if(!keys.includes(state.valid))state.valid=keys[0]||null;
+  sel.value=state.valid||'';
+}
+function populateCycles(){
+  const div=document.getElementById('cycleButtons');
+  const cycles=state.data.cycles||[];
+  if(!cycles.includes(state.cycle))state.cycle=cycles.at(-1)||null;
+  div.innerHTML=cycles.map(c=>'<button class="btn '+(c===state.cycle?'active':'')+'" data-cycle="'+c+'">'+cycleHour(c)+'</button>').join('');
+  div.querySelectorAll('button').forEach(b=>b.onclick=()=>{state.cycle=b.dataset.cycle;populateCycles();render();});
+}
+function drawBoundaries(){
+  boundaryLayer.clearLayers();
+  const styleLand={color:'#b6d9ef',weight:1,opacity:.45,fill:false};
+  const styleMarine={color:'#57aee8',weight:1,opacity:.35,fill:false,dashArray:'5 4'};
+  if(state.scope!=='marine')L.geoJSON(state.data.boundaries.land,{style:styleLand}).addTo(boundaryLayer);
+  if(state.scope!=='land')L.geoJSON(state.data.boundaries.marine,{style:styleMarine}).addTo(boundaryLayer);
+}
+function drawTemps(layer){
+  tempLayer.clearLayers(); if(!layer)return;
+  const vals=layer.values||[];
+  state.data.points.forEach((p,i)=>{
+    const v=vals[i]; if(v==null||!pointIncluded(p))return;
+    L.circleMarker([p.lat,p.lon],{
+      renderer:canvasRenderer,radius:5,stroke:false,fill:true,fillOpacity:.78,fillColor:tempColor(v)
+    }).bindTooltip(v.toFixed(1)+'°F',{direction:'top'}).addTo(tempLayer);
+  });
+}
+function sourceName(){
+  if(state.source==='ndfd')return 'Official NDFD';
+  if(state.source==='det')return 'NBM Deterministic';
+  return 'NBM P'+state.source;
+}
+function renderStats(layer){
+  const s=layer?.stats?.[state.scope];
+  const ids=['mean','median','min','max','sp10','sp90','samples'];
+  if(!s){ids.forEach(id=>document.getElementById(id).textContent='—');return}
+  document.getElementById('mean').textContent=s.mean.toFixed(1)+'°';
+  document.getElementById('median').textContent=s.median.toFixed(1)+'°';
+  document.getElementById('min').textContent=s.min.toFixed(1)+'°';
+  document.getElementById('max').textContent=s.max.toFixed(1)+'°';
+  document.getElementById('sp10').textContent=s.p10.toFixed(1)+'°';
+  document.getElementById('sp90').textContent=s.p90.toFixed(1)+'°';
+  document.getElementById('samples').textContent=s.n;
+}
+function renderChart(){
+  const block=currentBlock(); if(!block)return;
+  const labels=[], vals=[];
+  if(block.ndfd?.stats?.[state.scope]){labels.push('NDFD');vals.push(block.ndfd.stats[state.scope].mean)}
+  for(const c of state.data.cycles){
+    const r=block.nbm?.[c]; if(!r?.available)continue;
+    let l=state.source==='ndfd'||state.source==='det'?r.det:r.percentiles?.[state.source];
+    if(l?.stats?.[state.scope]){labels.push(cycleHour(c));vals.push(l.stats[state.scope].mean)}
+  }
+  if(chart)chart.destroy();
+  chart=new Chart(document.getElementById('cycleChart'),{
+    type:'line',
+    data:{labels,datasets:[{label:'Mean °F',data:vals,borderWidth:3,pointRadius:5,tension:.25}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#dcefff',font:{family:'Poppins',size:10}}}},
+      scales:{
+        x:{ticks:{color:'#a9c9df',font:{family:'Poppins',size:9}},grid:{color:'rgba(120,160,190,.12)'}},
+        y:{ticks:{color:'#a9c9df',font:{family:'Poppins',size:9},callback:v=>v+'°'},grid:{color:'rgba(120,160,190,.12)'}}
+      }
+    }
+  });
+}
+function render(){
+  const layer=currentLayer(), block=currentBlock(), run=block?.nbm?.[state.cycle];
+  drawBoundaries(); drawTemps(layer); renderStats(layer); renderChart();
+  setActive('[data-product]','product',state.product);
+  setActive('[data-scope]','scope',state.scope);
+  document.querySelectorAll('[data-source]').forEach(el=>el.classList.toggle('active',el.dataset.source===state.source));
+
+  const prod=state.product==='mint'?'Minimum Temperature':'Maximum Temperature';
+  const scope=state.scope[0].toUpperCase()+state.scope.slice(1);
+  document.getElementById('mapTitle').textContent=prod+' · '+sourceName();
+  document.getElementById('mapSub').textContent=(state.valid?isoLabel(state.valid):'')+' · '+scope+(state.source!=='ndfd'&&state.cycle?' · '+cycleHour(state.cycle)+' run':'');
+  document.getElementById('availability').textContent=layer?'':'Selected guidance is not available for this run/valid time.';
+  const detail=[];
+  detail.push('<b>Layer:</b> '+sourceName());
+  detail.push('<b>Valid:</b> '+(state.valid?isoLabel(state.valid):'—'));
+  if(state.source!=='ndfd'){
+    detail.push('<b>Cycle:</b> '+(state.cycle?new Date(state.cycle).toISOString().replace('.000',''):'—'));
+    detail.push('<b>Lead:</b> '+(run?.leadHours!=null?'F'+String(run.leadHours).padStart(3,'0'):'—'));
+  }
+  detail.push('<b>Scope:</b> '+scope);
+  if(layer?.meta?.stepRange)detail.push('<b>GRIB step:</b> '+layer.meta.stepRange);
+  document.getElementById('layerDetail').innerHTML=detail.join('<br>');
+}
+async function init(){
+  try{
+    const r=await fetch('data/guidance.json?'+Date.now()); if(!r.ok)throw new Error('HTTP '+r.status);
+    state.data=await r.json();
+    const gb=new Date(state.data.generatedUtc).toLocaleString('en-US',{timeZone:'UTC',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
+    document.getElementById('status').innerHTML='<span class="pill">NBM + NDFD</span><br>Updated '+gb+' UTC · '+state.data.points.length+' MOB sample points';
+    state.product='mint'; populateValid(); populateCycles();
+    const b=state.data.bounds; if(b?.length===4)map.fitBounds([[b[1],b[0]],[b[3],b[2]]],{padding:[10,10]});
+    document.getElementById('errors').textContent=(state.data.errors||[]).slice(0,12).join('\n');
+    render();
+  }catch(e){
+    document.getElementById('status').textContent='Guidance data unavailable';
+    document.getElementById('availability').textContent='guidance.json has not been generated yet: '+e.message;
+  }
+}
+document.querySelectorAll('[data-product]').forEach(b=>b.onclick=()=>{state.product=b.dataset.product;populateValid();render();});
+document.querySelectorAll('[data-scope]').forEach(b=>b.onclick=()=>{state.scope=b.dataset.scope;render();});
+document.querySelectorAll('[data-source]').forEach(b=>b.onclick=()=>{state.source=b.dataset.source;render();});
+document.getElementById('validSelect').onchange=e=>{state.valid=e.target.value;render();};
+init();
+</script>
+</body>
+</html>
