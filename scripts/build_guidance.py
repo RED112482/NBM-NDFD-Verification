@@ -15,6 +15,7 @@ from pathlib import Path
 import boto3
 import numpy as np
 from shapely.geometry import shape, mapping, box
+from scipy.spatial import cKDTree
 from botocore import UNSIGNED
 from botocore.client import Config
 from eccodes import (
@@ -452,14 +453,14 @@ def sample_grib(grib, sample_points):
     sv, sy, sx = vals[mask], lats[mask], lons[mask]
     if not len(sv):
         return [None] * len(sample_points)
-    out = []
-    for p in sample_points:
-        d = (sy - p["lat"]) ** 2 + (
-            (sx - p["lon"]) * math.cos(math.radians(p["lat"]))
-        ) ** 2
-        v = float(sv[int(np.argmin(d))])
-        out.append(round(v, 1) if math.isfinite(v) else None)
-    return out
+    # One spatial index per GRIB field instead of 1,100 repeated full-grid
+    # distance scans. Essential for 5 NBM percentile maps per valid period.
+    scale = math.cos(math.radians(float(np.mean(plat))))
+    tree = cKDTree(np.column_stack((sy, sx * scale)))
+    query = np.column_stack((plat, plon * scale))
+    ix = tree.query(query, k=1)[1]
+    sampled = sv[ix]
+    return [round(float(v), 1) if np.isfinite(v) else None for v in sampled]
 
 
 def stats(values, sample_points, mode):
