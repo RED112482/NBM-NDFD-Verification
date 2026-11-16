@@ -343,12 +343,22 @@ def read_nbm_field(init_dt, valid_dt, product):
 
     output = {"det": None, "percentiles": {}, "leadHours": lead}
     core = nbm_key(init_dt, lead, "core")
-    # NBM QMD max/min percentiles use 00/06/12/18Z runs rather than
-    # the 01/07/13/19Z deterministic cycles. Keep the true cycle identity.
-    qmd_init = init_dt - timedelta(hours=1)
-    qmd_lead = int((valid_dt - qmd_init).total_seconds() // 3600)
+    # NBM QMD cycles are 00/06/12/18Z, typically disseminated 6-8h
+    # after initialization. Only consider cycles available BEFORE the
+    # corresponding NBM text/product comparison cycle. This prevents
+    # using guidance that didn't yet exist at 00/12Z NDFD issuance.
+    qmd_cutoff = init_dt - timedelta(hours=8)
+    qmd_init = qmd_cutoff.replace(hour=0, minute=0, second=0, microsecond=0)
+    for hour in (0, 6, 12, 18):
+        candidate = qmd_cutoff.replace(hour=hour)
+        if candidate <= qmd_cutoff: qmd_init = candidate
+    # CONUS QMD MinT/MaxT are 18h extrema ending roughly 6h
+    # after NDFD's conventional 12Z/00Z display slot.
+    qmd_expected_valid = valid_dt + timedelta(hours=6)
+    qmd_lead = int((qmd_expected_valid - qmd_init).total_seconds() // 3600)
     qmd = nbm_key(qmd_init, qmd_lead, "qmd")
     output["qmdCycleUtc"] = qmd_init.isoformat().replace("+00:00", "Z")
+    output["qmdValidUtc"] = qmd_expected_valid.isoformat().replace("+00:00", "Z")
 
     if object_exists(NBM_BUCKET, core) and object_exists(NBM_BUCKET, core + ".idx"):
         lines = idx_lines(NBM_BUCKET, core)
@@ -375,7 +385,7 @@ def read_nbm_field(init_dt, valid_dt, product):
         for i in qmd_candidates:
             try:
                 msg = fetch_idx_message(NBM_BUCKET, qmd, lines, i)
-                if meta_valid(msg[3]) != valid_dt:
+                if meta_valid(msg[3]) != qmd_expected_valid:
                     continue
                 pct = safe_float(msg[3].get("percentileValue"))
                 if pct is None:
@@ -554,6 +564,7 @@ def main():
                         "det": None,
                         "percentiles": {},
                         "qmdCycleUtc": guidance.get("qmdCycleUtc"),
+                        "qmdValidUtc": guidance.get("qmdValidUtc"),
                     }
                     if guidance["det"] is not None:
                         entry["det"] = layer_payload(
