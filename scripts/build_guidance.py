@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import tempfile
 import urllib.parse
 import urllib.request
@@ -377,24 +378,29 @@ def read_nbm_field(init_dt, valid_dt, product):
 
     if object_exists(NBM_BUCKET, qmd) and object_exists(NBM_BUCKET, qmd + ".idx"):
         lines = idx_lines(NBM_BUCKET, qmd)
-        qmd_candidates = field_candidates(lines, product)
-        if not qmd_candidates and os.environ.get("DEBUG_QMD", "1") == "1":
-            print("QMD index sample for", qmd, product, ":",
-                  [line for line in lines if any(token in line.upper()
-                   for token in ("TMP:", "TMIN:", "TMAX:"))][:12])
+        # CONUS QMD probabilistic extrema are encoded as 'TMP' with an
+        # 18-hour min/max statistical process, *not* as TMIN/TMAX GRIB names.
+        # Select only actual percentile-level messages (exclude probability
+        # exceedance thresholds and instantaneous TMP percentiles).
+        extreme = "MIN" if product == "mint" else "MAX"
+        qmd_candidates = [
+            i for i, line in enumerate(lines)
+            if ":TMP:" in line.upper()
+            and f" HOUR {extreme} FCST:" in line.upper()
+            and re.search(r":(10|25|50|75|90)% level", line, re.I)
+        ]
+        if not qmd_candidates and os.environ.get("DEBUG_QMD", "0") == "1":
+            print("No QMD 18h temperature percentiles for", qmd, product)
         for i in qmd_candidates:
             try:
                 msg = fetch_idx_message(NBM_BUCKET, qmd, lines, i)
                 if meta_valid(msg[3]) != qmd_expected_valid:
                     continue
                 pct = safe_float(msg[3].get("percentileValue"))
-                if pct is None:
-                    # Some index generations expose the percentile only in text.
-                    txt = lines[i].upper()
-                    for p in PERCENTILES:
-                        if f":{p}% " in txt or f":{p}%:" in txt or f"P{p}" in txt:
-                            pct = float(p)
-                            break
+                if pct not in PERCENTILES:
+                    # GRIB2 index is the authoritative percentile inventory.
+                    found = re.search(r":(10|25|50|75|90)% level", lines[i], re.I)
+                    pct = float(found.group(1)) if found else None
                 if pct is not None and int(round(pct)) in PERCENTILES:
                     output["percentiles"][int(round(pct))] = msg
             except Exception:
