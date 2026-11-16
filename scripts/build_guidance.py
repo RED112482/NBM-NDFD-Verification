@@ -309,7 +309,12 @@ def read_nbm_field(init_dt, valid_dt, product):
 
     output = {"det": None, "percentiles": {}, "leadHours": lead}
     core = nbm_key(init_dt, lead, "core")
-    qmd = nbm_key(init_dt, lead, "qmd")
+    # NBM QMD max/min percentiles use 00/06/12/18Z runs rather than
+    # the 01/07/13/19Z deterministic cycles. Keep the true cycle identity.
+    qmd_init = init_dt - timedelta(hours=1)
+    qmd_lead = int((valid_dt - qmd_init).total_seconds() // 3600)
+    qmd = nbm_key(qmd_init, qmd_lead, "qmd")
+    output["qmdCycleUtc"] = qmd_init.isoformat().replace("+00:00", "Z")
 
     if object_exists(NBM_BUCKET, core) and object_exists(NBM_BUCKET, core + ".idx"):
         lines = idx_lines(NBM_BUCKET, core)
@@ -509,6 +514,7 @@ def main():
                         "leadHours": guidance["leadHours"],
                         "det": None,
                         "percentiles": {},
+                        "qmdCycleUtc": guidance.get("qmdCycleUtc"),
                     }
                     if guidance["det"] is not None:
                         entry["det"] = layer_payload(
