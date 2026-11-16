@@ -19,6 +19,7 @@ import os
 import re
 import tempfile
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -32,8 +33,11 @@ OUT = DATA / "history.json"
 GEOMETRY = DATA / "guidance.json"
 NDFD_BUCKET = "noaa-ndfd-pds"
 URMA_BUCKET = "noaa-urma-pds"
+RTMA_BUCKET = "noaa-rtma-pds"
 LEADS = (12, 24, 36, 48, 60)
 HISTORY_DAYS = int(os.environ.get("HISTORY_DAYS", "3"))
+ANALYSIS_HOURS = 13  # inclusive 12-hour minimum/maximum window
+MIN_HOUR_COVERAGE = 12  # no verification based on incomplete day
 MAX_ARCHIVE_OBJECTS = 8
 _ndfd_listing = {}
 _grid_index_cache = {}
@@ -203,24 +207,84 @@ def ndfd_grib_before(reference, valid, product, points):
     return None
 
 
-def read_urma(valid, product):
-    """A conservative URMA lookup: require exact field, validity and minimum/maximum step."""
-    ds=valid.strftime("%Y%m%d")
-    key=f"urma2p5.{ds}/urma2p5.t20z.2dvaranl_ndfd.grb2_wexp"
-    if not object_exists(URMA_BUCKET,key):return None
-    lines=idx_lines(URMA_BUCKET,key)
-    token=":TMIN:" if product=="mint" else ":TMAX:"
-    candidates=[i for i,line in enumerate(lines) if token in line.upper()]
-    for i in candidates:
-        try:
-            g=fetch_idx_message(URMA_BUCKET,key,lines,i)
-            if meta_valid(g[3])!=valid:continue
-            if str(g[3].get("stepType","")).lower() not in ("min","max","minimum","maximum"):
+def read_analysis_hour(source, stamp, points):
+    """Read ONLY the true 2 m hourly TMP analysis from NOAA public GRIB2.
+    The index byte range avoids downloading ~80 MB hourly analysis bundles.
+    """
+    bucket = URMA_BUCKET if source == "urma" else RTMA_BUCKET
+    ds = stamp.strftime("%Y%m%d")
+    prefix = "urma2p5" if source == "urma" else "rtma2p5"
+    key = f"{prefix}.{ds}/{prefix}.t{stamp:%H}z.2dvaranl_ndfd.grb2_wexp"
+    if not object_exists(bucket, key + ".idx"):
+        return stamp, None
+    try:
+        lines = idx_lines(bucket, key)
+        candidates = [i for i, row in enumerate(lines)
+                      if ":TMP:" in row.upper() and
+                      "2 M ABOVE GROUND" in row.upper() and
+                      (":ANL:" in row.upper() or ":0 HOUR FCST:" in row.upper())]
+        for i in candidates:
+            grib = fetch_idx_message(bucket, key, lines, i)
+            if meta_valid(grib[3]) != stamp:
                 continue
-            return g
-        except Exception as exc:
-            print("URMA candidate warning",repr(exc),flush=True)
-    return None
+            return stamp, grid_values(grib, points)
+    except Exception as exc:
+        print(f"{source.upper()} hourly {iso(stamp)}: {type(exc).__name__} {exc}", flush=True)
+    return stamp, None
+
+
+def analysis_extrema(source, valid, product, points, hourly_cache):
+    """Construct 12-h extrema from 13 exact-hour 2-m analyses (not native TMIN/TMAX).
+    Only emit a complete field when all 13 hourly values are available at a
+    sample node.  Missing times are never fabricated or silently ignored.
+    """
+    end = valid
+    times = [end - timedelta(hours=n) for n in range(12, -1, -1)]
+    rows = [hourly_cache.get((source, t)) for t in times]
+    if any(row is None for row in rows):
+        return None
+    arr = np.asarray([[np.nan if v is None else v for v in row]
+                      for row in rows], dtype=float)
+    good = np.all(np.isfinite(arr), axis=0)
+    extreme = np.min(arr, axis=0) if product == "mint" else np.max(arr, axis=0)
+    final = [round(float(v), 1) if keep else None
+             for v, keep in zip(extreme, good)]
+    if not any(v is not None for v in final):
+        return None
+    return {
+        "values": final,
+        "stats": {scope: stats(final, points, scope)
+                  for scope in ("land", "marine", "both")},
+        "meta": {
+            "source": f"NOAA {source.upper()} hourly 2-m temperature analyses",
+            "validUtc": iso(valid), "stepRange": "12h ending at valid time",
+            "verificationNote": "DERIVED 12-hour extreme from 13 hourly 2-m "
+                                "analyses, including both endpoints; not the "
+                                "native URMA TMIN/TMAX product.",
+            "hourlySamples": 13, "analysisMethod": "hourly_12h_extrema",
+        },
+    }
+
+
+def load_hourly_cache(targets, points):
+    stamps = sorted({valid-timedelta(hours=h) for valid in targets
+                     for h in range(13)})
+    cache = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(read_analysis_hour, src, stamp, points): (src,stamp)
+                   for src in ("urma","rtma") for stamp in stamps}
+        for f in as_completed(futures):
+            src,stamp = futures[f]
+            try:
+                _, vals = f.result()
+                cache[(src,stamp)] = vals
+            except Exception as exc:
+                print(f"{src} {stamp} fetch failed: {exc}", flush=True)
+                cache[(src,stamp)] = None
+    for source in ("urma","rtma"):
+        valid_count=sum(cache.get((source,stamp)) is not None for stamp in stamps)
+        print(source.upper(), "available hours", valid_count, "/", len(stamps), flush=True)
+    return cache
 
 
 def run():
@@ -237,10 +301,17 @@ def run():
       "errors":[],"method":{
           "nbm":"Operational pairing: 00Z NDFD reference -> preceding 13Z NBM, 12Z NDFD reference -> preceding 01Z NBM. Actual NBM forecast age = NDFD lead + 11h.",
           "ndfd":"Historical NWS WMO archive, last issuance at/before reference time.",
-          "verification":"URMA gridded TMIN/TMAX used only when exact 00Z/12Z valid metadata found.",
+          "verification":"URMA/RTMA 12-hour extrema are derived from complete hourly two-meter temperature analyses. Never present as native URMA TMIN/TMAX.",
           "percentiles":"QMD 00/06/12/18Z source cycles must be available before reference. 18h QMD is not verified using 12h URMA."
        }
     }
+    latest_dates = {"mint": latest_mint, "maxt": latest_maxt}
+    targets = [datetime((latest_dates[p]-timedelta(days=d)).year,
+                        (latest_dates[p]-timedelta(days=d)).month,
+                        (latest_dates[p]-timedelta(days=d)).day,
+                        12 if p=="mint" else 0,tzinfo=timezone.utc)
+               for p in ("mint","maxt") for d in range(HISTORY_DAYS)]
+    hourly_cache = load_hourly_cache(targets, points)
     for product,latest in (("mint",latest_mint),("maxt",latest_maxt)):
         for offset in range(HISTORY_DAYS):
             day=latest-timedelta(days=offset)
@@ -248,13 +319,14 @@ def run():
                            12 if product=="mint" else 0,tzinfo=timezone.utc)
             key=iso(valid)
             print("HISTORY",product,key,flush=True)
-            block={"validUtc":key,"analysis":None,"leads":{}}
-            try:
-                truth=read_urma(valid,product)
-                if truth is not None:
-                    block["analysis"]=payload(truth,points,"NOAA URMA")
-            except Exception as exc:
-                history["errors"].append(f"{product} {key} URMA: {type(exc).__name__} {exc}")
+            block={"validUtc":key,"analysis":None,"rtma":None,"leads":{}}
+            for source, field in (("urma", "analysis"), ("rtma", "rtma")):
+                try:
+                    block[field] = analysis_extrema(
+                        source,valid,product,points,hourly_cache)
+                except Exception as exc:
+                    history["errors"].append(
+                        f"{product} {key} {source.upper()}: {type(exc).__name__} {exc}")
             for lead in LEADS:
                 # NDFD release/reference at -12/-24/-36/-48/-60h.
                 # Pair to last operational 13Z/01Z NBM run before that
@@ -293,7 +365,10 @@ def run():
                 except Exception as exc:
                     slot["errors"]["ndfd"]=str(exc)
                     print("NDFD error",str(exc),flush=True)
-                if block["analysis"]:
+                # Use URMA primarily; RTMA is labeled fallback for verification.
+                truth=block["analysis"] or block["rtma"]
+                truth_source="URMA" if block["analysis"] else "RTMA" if block["rtma"] else None
+                if truth:
                     if slot["nbm"]["det"]:
                         if slot["nbm"].get("validOffsetHours"):
                             slot["nbm"]["det"]["error"]=None
@@ -301,15 +376,16 @@ def run():
                                 "Actual NBM validity is 1 hour after NDFD 00/12Z endpoint; not exactly verifiable")
                         else:
                             slot["nbm"]["det"]["error"]=match_errors(
-                                slot["nbm"]["det"],block["analysis"],points)
+                                slot["nbm"]["det"],truth,points)
                     for p in slot["nbm"]["percentiles"].values():
                         # 18-hour QMD extrema must not be scored against the
                         # 12-hour URMA analysis merely because day labels match.
                         p["error"]=None
-                        p["meta"]["verificationNote"]="18h QMD/12h URMA mismatch; map and raw statistics only"
+                        p["meta"]["verificationNote"]="18h QMD/12h derived analysis mismatch; map and raw statistics only"
                     if slot["ndfd"]:
                         slot["ndfd"]["error"]=match_errors(
-                            slot["ndfd"],block["analysis"],points)
+                            slot["ndfd"],truth,points)
+                slot["verificationSource"] = truth_source
                 block["leads"][str(lead)]=slot
                 # Checkpoint each lead so failed runs can be inspected.
                 history["days"][product][key]=block
