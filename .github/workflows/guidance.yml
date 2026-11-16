@@ -1,0 +1,89 @@
+name: Build and deploy guidance viewer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3,9,15,21 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - "site/index.html"
+      - "requirements.txt"
+      - ".github/workflows/guidance.yml"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: nbm-ndfd-guidance
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install GRIB dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build MOB guidance dataset
+        run: python scripts/build_guidance.py
+
+      - name: Validate generated dataset
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path("site/data/guidance.json").read_text())
+          assert p["schemaVersion"] == 1
+          assert p["office"] == "MOB"
+          assert len(p["points"]) > 100
+          assert set(p["products"]) == {"mint", "maxt"}
+          assert len(p["cycles"]) == 4
+          print("Validated guidance schema:", len(p["points"]), "sample points")
+          print("Non-fatal data gaps:", len(p.get("errors", [])))
+          PY
+
+      - name: Save generated guidance JSON
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data/guidance.json
+          if git diff --cached --quiet; then
+            echo "Guidance data unchanged."
+          else
+            git commit -m "Refresh NBM/NDFD guidance data"
+            git push
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
