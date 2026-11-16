@@ -61,15 +61,15 @@
     .controls{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:14px;row-gap:4px}
     .controls h2{grid-column:1/-1}
     .controls>.label{margin:4px 0 2px}
-    .controls>.label:nth-of-type(1){grid-column:1;grid-row:2}
-    .controls>.seg:nth-of-type(1){grid-column:1;grid-row:3}
-    .controls>.label:nth-of-type(2){grid-column:2;grid-row:2}
-    .controls>.seg:nth-of-type(2){grid-column:2;grid-row:3}
-    .controls>.label:nth-of-type(3){grid-column:3;grid-row:2}
+    .controls>.label:nth-child(2){grid-column:1;grid-row:2}
+    .controls>.seg:nth-child(3){grid-column:1;grid-row:3}
+    .controls>.label:nth-child(4){grid-column:2;grid-row:2}
+    .controls>.seg:nth-child(5){grid-column:2;grid-row:3}
+    .controls>.label:nth-child(6){grid-column:3;grid-row:2}
     .controls>#validSelect{grid-column:3;grid-row:3}
-    .controls>.label:nth-of-type(4){grid-column:4;grid-row:2}
+    .controls>.label:nth-child(8){grid-column:4;grid-row:2}
     .controls>#cycleButtons{grid-column:4;grid-row:3}
-    .controls>.label:nth-of-type(5){grid-column:1/-1;grid-row:4}
+    .controls>.label:nth-child(10){grid-column:1/-1;grid-row:4}
     .controls>#sources{grid-column:1/-1;grid-row:5;display:flex;align-items:stretch;flex-wrap:wrap;gap:8px}
     .controls>#sources>.source-card{margin:0;min-width:160px}
     .controls>#sources>.seg{display:flex;gap:6px;flex-wrap:wrap;margin:0!important}
@@ -86,15 +86,15 @@
     .right>.details-panel{order:2}
     @media(max-width:1100px){
       .controls{grid-template-columns:repeat(2,minmax(0,1fr))}
-      .controls>.label:nth-of-type(1){grid-column:1;grid-row:2}
-      .controls>.seg:nth-of-type(1){grid-column:1;grid-row:3}
-      .controls>.label:nth-of-type(2){grid-column:2;grid-row:2}
-      .controls>.seg:nth-of-type(2){grid-column:2;grid-row:3}
-      .controls>.label:nth-of-type(3){grid-column:1;grid-row:4}
+      .controls>.label:nth-child(2){grid-column:1;grid-row:2}
+      .controls>.seg:nth-child(3){grid-column:1;grid-row:3}
+      .controls>.label:nth-child(4){grid-column:2;grid-row:2}
+      .controls>.seg:nth-child(5){grid-column:2;grid-row:3}
+      .controls>.label:nth-child(6){grid-column:1;grid-row:4}
       .controls>#validSelect{grid-column:1;grid-row:5}
-      .controls>.label:nth-of-type(4){grid-column:2;grid-row:4}
+      .controls>.label:nth-child(8){grid-column:2;grid-row:4}
       .controls>#cycleButtons{grid-column:2;grid-row:5}
-      .controls>.label:nth-of-type(5){grid-column:1/-1;grid-row:6}
+      .controls>.label:nth-child(10){grid-column:1/-1;grid-row:6}
       .controls>#sources{grid-column:1/-1;grid-row:7}
     }
     @media(max-width:840px){
