@@ -2,10 +2,11 @@
 """Build provenance-aware WFO MOB historical MinT/MaxT guidance snapshots.
 
 A date is a *valid date*, not a model initialization. Each nominal lead L
-is matched to the operational NBM 01/13Z cycle at L-1 exact hours
-before the 12Z MinT/00Z MaxT valid-time endpoint. This preserves the
-operational 00/12Z NDFD comparison clock without pretending the hour offsets
-are exact. NDFD is the most recent archived WMO issuance no later than the
+is matched to the operational NBM 01/13Z cycle 11 hours BEFORE
+the archived NDFD 00/12Z reference snapshot (not after it).
+Thus a nominal NDFD -12h lead uses NBM initialized -23h from validity,
+and a -24h NDFD lead uses NBM initialized -35h. Exact cycle/lead stamps
+are preserved and any 1h grid valid-time offset is explicitly flagged. NDFD is the most recent archived WMO issuance no later than the
 target 00/12Z reference time. URMA is optional; missing verifying analyses
 are never replaced with invented data.
 
@@ -234,7 +235,7 @@ def run():
       "points":points,"bounds":base["bounds"],"boundaries":{},
       "leads":list(LEADS),"days":{"mint":{},"maxt":{}},
       "errors":[],"method":{
-          "nbm":"01Z/13Z operational comparison: nominal lead 12h = actual 11h; 24h = actual 23h.",
+          "nbm":"Operational pairing: 00Z NDFD reference -> preceding 13Z NBM, 12Z NDFD reference -> preceding 01Z NBM. Actual NBM forecast age = NDFD lead + 11h.",
           "ndfd":"Historical NWS WMO archive, last issuance at/before reference time.",
           "verification":"URMA gridded TMIN/TMAX used only when exact 00Z/12Z valid metadata found.",
           "percentiles":"QMD 00/06/12/18Z source cycles must be available before reference. 18h QMD is not verified using 12h URMA."
@@ -255,10 +256,12 @@ def run():
             except Exception as exc:
                 history["errors"].append(f"{product} {key} URMA: {type(exc).__name__} {exc}")
             for lead in LEADS:
-                # 11/23/35/47/59 actual elapsed hours. Preserve true hours.
-                init=valid-timedelta(hours=lead-1)
+                # NDFD release/reference at -12/-24/-36/-48/-60h.
+                # Pair to last operational 13Z/01Z NBM run before that
+                # release, never a later run (no look-ahead contamination).
                 reference=valid-timedelta(hours=lead)
-                slot={"nominalLead":lead,"actualLeadHours":lead-1,
+                init=reference-timedelta(hours=11)
+                slot={"nominalLead":lead,"actualLeadHours":lead+11,
                       "nbmCycleUtc":iso(init),"ndfdReferenceUtc":iso(reference),
                       "nbm":{"det":None,"percentiles":{}},
                       "ndfd":None,"errors":{}}
@@ -266,11 +269,10 @@ def run():
                     raw=read_nbm_field(init,valid,product)
                     if raw is None:
                         raw={"det":None,"percentiles":{}}
-                    # Some 01/13Z core 12-hour extrema are supplied at F012
-                    # (one hour after the 00/12Z display convention), not F011.
-                    # Show the actual 1-hour-offset guidance, but do not call
-                    # its errors exact verification against the 00/12Z analysis.
-                    if lead==12 and raw.get("det") is None:
+                    # If the exact 00/12Z-valid extrema GRIB is absent,
+                    # allow the existing NBM field valid one hour later.
+                    # Such a field may be viewed but not exactly verified.
+                    if raw.get("det") is None:
                         shifted=read_nbm_field(init,valid+timedelta(hours=1),product)
                         if shifted and shifted.get("det") is not None:
                             raw["det"]=shifted["det"]
