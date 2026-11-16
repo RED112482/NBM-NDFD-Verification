@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NBM / NDFD Temperature Guidance Viewer</title>
+  <title>NBM / NDFD Temperature Guidance Viewer · R2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -55,6 +55,55 @@
     .pill{display:inline-block;padding:2px 6px;border-radius:999px;background:#09253b;border:1px solid #31546e;color:var(--cyan);font-size:9px;font-weight:700}
     @media(max-width:1180px){.grid{grid-template-columns:320px 1fr}.right{grid-column:1/-1}.right .panel{max-width:none}.cards{grid-template-columns:repeat(4,1fr)}}
     @media(max-width:800px){.grid{grid-template-columns:1fr}.right{grid-column:auto}.header{align-items:flex-start;flex-direction:column}.status{text-align:left}#map{height:520px}.cards{grid-template-columns:1fr 1fr}}
+
+    /* R2 paired map and graph, with a full-width compact control bar */
+    .grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
+    .controls{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:14px;row-gap:4px}
+    .controls h2{grid-column:1/-1}
+    .controls>.label{margin:4px 0 2px}
+    .controls>.label:nth-of-type(1){grid-column:1;grid-row:2}
+    .controls>.seg:nth-of-type(1){grid-column:1;grid-row:3}
+    .controls>.label:nth-of-type(2){grid-column:2;grid-row:2}
+    .controls>.seg:nth-of-type(2){grid-column:2;grid-row:3}
+    .controls>.label:nth-of-type(3){grid-column:3;grid-row:2}
+    .controls>#validSelect{grid-column:3;grid-row:3}
+    .controls>.label:nth-of-type(4){grid-column:4;grid-row:2}
+    .controls>#cycleButtons{grid-column:4;grid-row:3}
+    .controls>.label:nth-of-type(5){grid-column:1/-1;grid-row:4}
+    .controls>#sources{grid-column:1/-1;grid-row:5;display:flex;align-items:stretch;flex-wrap:wrap;gap:8px}
+    .controls>#sources>.source-card{margin:0;min-width:160px}
+    .controls>#sources>.seg{display:flex;gap:6px;flex-wrap:wrap;margin:0!important}
+    .controls>#sources>.seg .btn{min-width:63px}
+    .controls>.detail,.controls>.notice{grid-column:1/-1;margin-top:2px}
+    .map-panel{grid-column:1;min-width:0}
+    #map{height:580px}
+    .right{grid-column:2;min-width:0;display:flex;flex-direction:column;gap:12px}
+    .right>.panel{margin-top:0!important}
+    .right>.chart-panel{order:-2;min-height:625px;display:flex;flex-direction:column}
+    #cycleChart{height:525px!important;max-height:525px!important;min-height:525px!important}
+    .right>.chart-panel .detail{margin-top:auto}
+    .right>.panel:not(.chart-panel):not(.details-panel){order:1}
+    .right>.details-panel{order:2}
+    @media(max-width:1100px){
+      .controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .controls>.label:nth-of-type(1){grid-column:1;grid-row:2}
+      .controls>.seg:nth-of-type(1){grid-column:1;grid-row:3}
+      .controls>.label:nth-of-type(2){grid-column:2;grid-row:2}
+      .controls>.seg:nth-of-type(2){grid-column:2;grid-row:3}
+      .controls>.label:nth-of-type(3){grid-column:1;grid-row:4}
+      .controls>#validSelect{grid-column:1;grid-row:5}
+      .controls>.label:nth-of-type(4){grid-column:2;grid-row:4}
+      .controls>#cycleButtons{grid-column:2;grid-row:5}
+      .controls>.label:nth-of-type(5){grid-column:1/-1;grid-row:6}
+      .controls>#sources{grid-column:1/-1;grid-row:7}
+    }
+    @media(max-width:840px){
+      .grid{grid-template-columns:1fr}
+      .controls,.map-panel,.right{grid-column:1}
+      .right>.chart-panel{min-height:465px}
+      #cycleChart{height:365px!important;max-height:365px!important;min-height:365px!important}
+      #map{height:465px}
+    }
   </style>
 </head>
 <body>
@@ -62,13 +111,13 @@
   <div class="header">
     <div class="title">
       <h1>NBM / NDFD Temperature Guidance</h1>
-      <p>WFO Mobile/Pensacola · deterministic + percentile guidance · spatial forecast evolution</p>
+      <p>WFO Mobile/Pensacola · NDFD + NBM deterministic and percentile temperature grids · Viewer R2 · No API key required</p>
     </div>
     <div class="status" id="status">Loading guidance…</div>
   </div>
 
   <div class="grid">
-    <aside class="panel">
+    <aside class="panel controls">
       <h2>Forecast Controls</h2>
 
       <div class="label">Temperature product</div>
@@ -142,13 +191,13 @@
         </div>
       </div>
 
-      <div class="panel" style="margin-top:12px">
-        <h2>Cycle Evolution</h2>
+      <div class="panel chart-panel" style="margin-top:12px">
+        <h2>Forecast Evolution · Same Valid Time</h2>
         <canvas id="cycleChart"></canvas>
         <div class="detail">Mean forecast temperature over the selected land/marine sample for the same valid period. This is forecast evolution, not forecast error.</div>
       </div>
 
-      <div class="panel" style="margin-top:12px">
+      <div class="panel details-panel" style="margin-top:12px">
         <h2>Layer Details</h2>
         <div class="detail" id="layerDetail" style="margin-top:0;border-top:0;padding-top:0"></div>
         <div class="errors" id="errors"></div>
@@ -161,6 +210,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
 const state={data:null,product:'mint',scope:'land',valid:null,cycle:null,source:'ndfd'};
+window.addEventListener('error', e=>{const el=document.getElementById('availability');if(el)el.textContent='Viewer error: '+e.message;});
 const map=L.map('map',{preferCanvas:true,zoomControl:true}).setView([30.75,-87.65],7);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
   maxZoom:12,attribution:'© OpenStreetMap © CARTO'
@@ -205,7 +255,7 @@ function populateValid(){
   const sel=document.getElementById('validSelect');
   const keys=Object.keys(state.data.products[state.product]||{}).sort();
   sel.innerHTML=keys.map(k=>'<option value="'+k+'">'+isoLabel(k)+'</option>').join('');
-  if(!keys.includes(state.valid))state.valid=keys[0]||null;
+  if(!keys.includes(state.valid))state.valid=keys.find(k=>state.data.products[state.product][k]?.ndfd)||keys[0]||null;
   sel.value=state.valid||'';
 }
 function populateCycles(){
@@ -258,6 +308,7 @@ function renderChart(){
     let l=state.source==='ndfd'||state.source==='det'?r.det:r.percentiles?.[state.source];
     if(l?.stats?.[state.scope]){labels.push(cycleHour(c));vals.push(l.stats[state.scope].mean)}
   }
+  if(!labels.length){if(chart){chart.destroy();chart=null}return;}
   if(chart)chart.destroy();
   chart=new Chart(document.getElementById('cycleChart'),{
     type:'line',
@@ -274,7 +325,8 @@ function renderChart(){
 }
 function render(){
   const layer=currentLayer(), block=currentBlock(), run=block?.nbm?.[state.cycle];
-  drawBoundaries(); drawTemps(layer); renderStats(layer); renderChart();
+  drawBoundaries();drawTemps(layer);renderStats(layer);
+  try{renderChart();}catch(e){console.warn('Chart error',e);}
   setActive('[data-product]','product',state.product);
   setActive('[data-scope]','scope',state.scope);
   document.querySelectorAll('[data-source]').forEach(el=>el.classList.toggle('active',el.dataset.source===state.source));
@@ -283,7 +335,7 @@ function render(){
   const scope=state.scope[0].toUpperCase()+state.scope.slice(1);
   document.getElementById('mapTitle').textContent=prod+' · '+sourceName();
   document.getElementById('mapSub').textContent=(state.valid?isoLabel(state.valid):'')+' · '+scope+(state.source!=='ndfd'&&state.cycle?' · '+cycleHour(state.cycle)+' run':'');
-  document.getElementById('availability').textContent=layer?'':'Selected guidance is not available for this run/valid time.';
+  document.getElementById('availability').textContent=layer?'':((state.source!=='ndfd'&&state.source!=='det')?'The requested percentile is unavailable at this exact 00Z/12Z period from the selected NBM QMD messages. No substitute is plotted.':'No gridded guidance for this run and valid period. Try another NBM cycle or NDFD.');
   const detail=[];
   detail.push('<b>Layer:</b> '+sourceName());
   detail.push('<b>Valid:</b> '+(state.valid?isoLabel(state.valid):'—'));
@@ -305,6 +357,7 @@ async function init(){
     const b=state.data.bounds; if(b?.length===4)map.fitBounds([[b[1],b[0]],[b[3],b[2]]],{padding:[10,10]});
     document.getElementById('errors').textContent=(state.data.errors||[]).slice(0,12).join('\n');
     render();
+    setTimeout(()=>map.invalidateSize(),100);
   }catch(e){
     document.getElementById('status').textContent='Guidance data unavailable';
     document.getElementById('availability').textContent='guidance.json has not been generated yet: '+e.message;
