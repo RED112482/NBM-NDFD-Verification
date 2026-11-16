@@ -264,6 +264,17 @@ def run():
                       "ndfd":None,"errors":{}}
                 try:
                     raw=read_nbm_field(init,valid,product)
+                    if raw is None:
+                        raw={"det":None,"percentiles":{}}
+                    # Some 01/13Z core 12-hour extrema are supplied at F012
+                    # (one hour after the 00/12Z display convention), not F011.
+                    # Show the actual 1-hour-offset guidance, but do not call
+                    # its errors exact verification against the 00/12Z analysis.
+                    if lead==12 and raw.get("det") is None:
+                        shifted=read_nbm_field(init,valid+timedelta(hours=1),product)
+                        if shifted and shifted.get("det") is not None:
+                            raw["det"]=shifted["det"]
+                            slot["nbm"]["validOffsetHours"]=1
                     if raw:
                         if raw.get("det") is not None:
                             slot["nbm"]["det"]=payload(raw["det"],points,"NBM core",init)
@@ -282,8 +293,13 @@ def run():
                     print("NDFD error",str(exc),flush=True)
                 if block["analysis"]:
                     if slot["nbm"]["det"]:
-                        slot["nbm"]["det"]["error"]=match_errors(
-                            slot["nbm"]["det"],block["analysis"],points)
+                        if slot["nbm"].get("validOffsetHours"):
+                            slot["nbm"]["det"]["error"]=None
+                            slot["nbm"]["det"]["meta"]["verificationNote"]=(
+                                "Actual NBM validity is 1 hour after NDFD 00/12Z endpoint; not exactly verifiable")
+                        else:
+                            slot["nbm"]["det"]["error"]=match_errors(
+                                slot["nbm"]["det"],block["analysis"],points)
                     for p in slot["nbm"]["percentiles"].values():
                         # 18-hour QMD extrema must not be scored against the
                         # 12-hour URMA analysis merely because day labels match.
