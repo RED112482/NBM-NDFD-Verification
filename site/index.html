@@ -128,7 +128,7 @@ function selDates(){
  const el=$('date');const old=S.date;
  el.innerHTML='';
  for(const d of dates){const op=document.createElement('option');op.value=d;op.textContent=UTC(d);el.append(op)}
- S.date=dates.includes(old)?old:dates[0]||null;el.value=S.date||'';
+ const analyzed=dates.find(k=>currentDays()?.[k]?.analysis);S.date=dates.includes(old)?old:(analyzed||dates[0]||null);el.value=S.date||'';
 }
 function colors(v,isError){
  if(isError){const stops=[[-20,'#3d6cb8'],[-12,'#6ca8e1'],[-5,'#b6dced'],[0,'#eeeeee'],[5,'#f9cda3'],[12,'#ed8755'],[20,'#bd3845']];return gradient(v,stops)}
@@ -267,6 +267,9 @@ function populateStats(){
  m.validUtc?'Grid validity: '+UTC(m.validUtc):'',
  m.stepRange?'GRIB statistical interval: '+m.stepRange:'',
  m.source?'Source: '+m.source:'',
+ m.verificationNote?'Period caution: '+m.verificationNote:'',
+ slot?.nbm?.validOffsetHours&&S.source==='det'?'NBM valid time is +'+slot.nbm.validOffsetHours+'h from the conventional 00/12Z endpoint; not scored as exact verification.':'',
+ (S.source!=='ndfd'&&S.source!=='det'&&S.source!=='analysis')?'QMD temperature percentiles cover 18h and may have a different valid endpoint than NDFD 12h extrema.':'',
  'NDFD 00Z/12Z refers to snapshots, not the same thing as MinT 12Z / MaxT 00Z validity.',
  'Verification metrics appear only when an exact-time gridded URMA analysis was found. Percentiles will remain absent unless valid QMD messages exist.'
  ].filter(Boolean).join('  •  ');
