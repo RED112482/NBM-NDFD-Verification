@@ -107,14 +107,14 @@ def feature_bounds(features):
 
     def walk(v):
         if (
-            isinstance(v, list)
+            isinstance(v, (list, tuple))
             and len(v) >= 2
             and isinstance(v[0], (int, float))
             and isinstance(v[1], (int, float))
         ):
             xs.append(float(v[0]))
             ys.append(float(v[1]))
-        elif isinstance(v, list):
+        elif isinstance(v, (list, tuple)):
             for q in v:
                 walk(q)
 
