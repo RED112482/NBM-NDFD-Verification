@@ -53,7 +53,7 @@ select{width:100%;max-width:100%}
 <div class="panel controls">
   <div class="field"><label>Element</label><div class="segment"><button data-prod="mint" class="active">MinT</button><button data-prod="maxt">MaxT</button></div></div>
   <div class="field"><label>Verifying / valid date (UTC)</label><select id="date"></select></div>
-  <div class="field"><label>Nominal forecast lead</label><select id="lead"><option value="12">-12h</option><option value="24">-24h</option><option value="36">-36h</option><option value="48">-48h</option><option value="60">-60h</option></select></div>
+  <div class="field"><label>NDFD snapshot lead</label><select id="lead"><option value="12">-12h</option><option value="24">-24h</option><option value="36">-36h</option><option value="48">-48h</option><option value="60">-60h</option></select></div>
   <div class="field"><label>Geographic sample</label><div class="segment"><button data-scope="land" class="active">Land</button><button data-scope="marine">Marine</button><button data-scope="both">Both</button></div></div>
   <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Error − Analysis</button></div></div>
 </div>
@@ -97,7 +97,7 @@ select{width:100%;max-width:100%}
  <div class="metric"><small>GRIB PERIOD</small><strong id="period">—</strong></div>
  </div></div>
  <div class="panel"><h2>Source provenance and forecast-period safeguards</h2>
- <div class="note" id="details">Data loading. Nominal -12/-24/-36/-48/-60h tracks available 01Z/13Z NBM runs around NDFD 00Z/12Z reference snapshots. The actual model forecast age is recorded separately. No missing percentile or observation is estimated.</div>
+ <div class="note" id="details">Data loading. Nominal -12/-24/-36/-48/-60h tracks NDFD 00Z/12Z snapshots and their preceding 13Z/01Z NBM guidance. The actual model forecast age is recorded separately. No missing percentile or observation is estimated.</div>
  </div>
 </div>
 </div>
@@ -260,7 +260,7 @@ function populateStats(){
  $('details').textContent=[
  'Guidance: '+sourceName(),
  'Selected valid: '+(S.date?UTC(S.date):'—'),
- 'Nominal lead: -'+S.lead+'h',
+ 'NDFD snapshot lead: -'+S.lead+'h',
  slot?'NBM initialization: '+UTC(slot.nbmCycleUtc)+' (actual age '+slot.actualLeadHours+' hours)':'Historical run not available in forward-only data.',
  slot?'NDFD reference cutoff: '+UTC(slot.ndfdReferenceUtc):'',
  m.issuedUtc?'Actual guidance issue/init: '+UTC(m.issuedUtc):'',
@@ -270,7 +270,7 @@ function populateStats(){
  m.verificationNote?'Period caution: '+m.verificationNote:'',
  slot?.nbm?.validOffsetHours&&S.source==='det'?'NBM valid time is +'+slot.nbm.validOffsetHours+'h from the conventional 00/12Z endpoint; not scored as exact verification.':'',
  (S.source!=='ndfd'&&S.source!=='det'&&S.source!=='analysis')?'QMD temperature percentiles cover 18h and may have a different valid endpoint than NDFD 12h extrema.':'',
- 'NDFD 00Z/12Z refers to snapshots, not the same thing as MinT 12Z / MaxT 00Z validity.',
+ '00Z NDFD is paired with preceding 13Z NBM; 12Z NDFD is paired with preceding 01Z NBM. These are issuance snapshots; MinT 12Z / MaxT 00Z are forecast-valid endpoints.',
  'Verification metrics appear only when an exact-time gridded URMA analysis was found. Percentiles will remain absent unless valid QMD messages exist.'
  ].filter(Boolean).join('  •  ');
 }
