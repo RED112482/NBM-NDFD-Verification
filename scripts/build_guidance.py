@@ -144,7 +144,24 @@ def fetch_boundaries():
             feat["properties"] = {
                 str(k).lower(): v for k, v in (feat.get("properties") or {}).items()
             }
-    return land, marine
+    # NWS operational boundary layers: county=2, states=3, CWA=1.
+    reference = "https://mapservices.weather.noaa.gov/static/rest/services/nws_reference_maps/nws_reference_map/FeatureServer"
+    outlines = {}
+    for name, layer_id, where in (
+        ("counties", 2, "cwa='MOB'"),
+        ("states", 3, "state IN ('AL','FL','MS')"),
+        ("cwa", 1, "cwa='MOB'"),
+    ):
+        try:
+            params = {"where": where, "outFields": "*", "returnGeometry": "true",
+                      "outSR": "4326", "f": "geojson"}
+            outlines[name] = fetch_json(
+                f"{reference}/{layer_id}/query?" + urllib.parse.urlencode(params)
+            )
+        except Exception as exc:
+            print(f"WARNING: {name} outlines unavailable: {exc}")
+            outlines[name] = {"type": "FeatureCollection", "features": []}
+    return land, marine, outlines
 
 
 def build_sample_points(land, marine):
@@ -463,7 +480,7 @@ def layer_payload(grib, sample_points, source=None):
 def main():
     DATA.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    land, marine = fetch_boundaries()
+    land, marine, outlines = fetch_boundaries()
     sample_points, bounds = build_sample_points(land, marine)
     cycles = latest_cycle_occurrences(now)
     targets = valid_targets(now)
@@ -475,7 +492,7 @@ def main():
         "units": "F",
         "sampleSpacingDegrees": SAMPLE_SPACING,
         "bounds": [round(x, 4) for x in bounds],
-        "boundaries": {"land": land, "marine": marine},
+        "boundaries": {"land": land, "marine": marine, **outlines},
         "points": sample_points,
         "products": {"mint": {}, "maxt": {}},
         "cycles": [c.isoformat().replace("+00:00", "Z") for c in cycles],
