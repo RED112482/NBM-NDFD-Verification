@@ -1,0 +1,38 @@
+name: Probe archived QMD temperature inventory
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/qmd_probe.yml"
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install boto3
+      - name: Read sample archived NBM QMD GRIB inventories
+        run: |
+          python - <<'PY'
+          import boto3
+          from botocore import UNSIGNED
+          from botocore.client import Config
+          b=boto3.client("s3",config=Config(signature_version=UNSIGNED))
+          bucket="noaa-nbm-grib2-pds"
+          specs=[("20261114","00",n) for n in (12,18,24,30,36,42,48,54)] + [("20261114","12",n) for n in (12,18,24,30,36,42)]
+          for day,cycle,n in specs:
+              key=f"blend.{day}/{cycle}/qmd/blend.t{cycle}z.qmd.f{n:03d}.co.grib2.idx"
+              try:
+                  text=b.get_object(Bucket=bucket,Key=key)["Body"].read().decode()
+              except Exception as e:
+                  print(key,"UNAVAILABLE",str(e)[:90])
+                  continue
+              lines=text.splitlines()
+              variables=sorted(set(line.split(":")[3] for line in lines if len(line.split(":"))>4))
+              relevant=[x for x in lines if any(t in x.upper() for t in ("TMIN","TMAX","MIN FCST","MAX FCST","MINIMUM","MAXIMUM","PERCENTILE"))]
+              print("\n",key,"messageCount",len(lines),"variables",variables)
+              print("Extreme temperature matches:",relevant[:8])
+          PY
