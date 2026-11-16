@@ -237,7 +237,7 @@ def run():
           "nbm":"01Z/13Z operational comparison: nominal lead 12h = actual 11h; 24h = actual 23h.",
           "ndfd":"Historical NWS WMO archive, last issuance at/before reference time.",
           "verification":"URMA gridded TMIN/TMAX used only when exact 00Z/12Z valid metadata found.",
-          "percentiles":"QMD 00/12Z snapshots retained only when exact forecast validity is available."
+          "percentiles":"QMD 00/06/12/18Z source cycles must be available before reference. 18h QMD is not verified using 12h URMA."
        }
     }
     for product,latest in (("mint",latest_mint),("maxt",latest_maxt)):
@@ -270,7 +270,8 @@ def run():
                         slot["nbm"]["qmdCycleUtc"]=raw.get("qmdCycleUtc")
                         for pct,g in raw.get("percentiles",{}).items():
                             slot["nbm"]["percentiles"][str(pct)]=payload(
-                                g,points,"NBM QMD",init-timedelta(hours=1))
+                                g,points,"NBM QMD",
+                            datetime.fromisoformat(raw["qmdCycleUtc"].replace("Z","+00:00")))
                 except Exception as exc:
                     slot["errors"]["nbm"]=str(exc)
                     print("NBM error",str(exc),flush=True)
@@ -284,7 +285,10 @@ def run():
                         slot["nbm"]["det"]["error"]=match_errors(
                             slot["nbm"]["det"],block["analysis"],points)
                     for p in slot["nbm"]["percentiles"].values():
-                        p["error"]=match_errors(p,block["analysis"],points)
+                        # 18-hour QMD extrema must not be scored against the
+                        # 12-hour URMA analysis merely because day labels match.
+                        p["error"]=None
+                        p["meta"]["verificationNote"]="18h QMD/12h URMA mismatch; map and raw statistics only"
                     if slot["ndfd"]:
                         slot["ndfd"]["error"]=match_errors(
                             slot["ndfd"],block["analysis"],points)
