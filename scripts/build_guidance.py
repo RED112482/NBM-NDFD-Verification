@@ -13,6 +13,7 @@ from pathlib import Path
 
 import boto3
 import numpy as np
+from shapely.geometry import shape, mapping, box
 from botocore import UNSIGNED
 from botocore.client import Config
 from eccodes import (
@@ -161,6 +162,22 @@ def fetch_boundaries():
         except Exception as exc:
             print(f"WARNING: {name} outlines unavailable: {exc}")
             outlines[name] = {"type": "FeatureCollection", "features": []}
+    # Clip and simplify outlines for the MOB map before sending them to browsers.
+    # Keeping entire AL/FL/MS polygon coastlines can exceed 10 MB and stall maps.
+    wb,sb,eb,nb=feature_bounds((land.get("features") or [])+(marine.get("features") or []))
+    viewport=box(wb-.18,sb-.18,eb+.18,nb+.18)
+    for collection in (land,marine,*outlines.values()):
+        compact=[]
+        for feat in collection.get("features",[]):
+            try:
+                geom=shape(feat.get("geometry") or {})
+                cut=geom.intersection(viewport).simplify(.006,preserve_topology=True)
+                if cut.is_empty:continue
+                feat["geometry"]=mapping(cut)
+                compact.append(feat)
+            except Exception as exc:
+                print("WARNING: couldn't simplify boundary:",str(exc)[:160])
+        collection["features"]=compact
     return land, marine, outlines
 
 
