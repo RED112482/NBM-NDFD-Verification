@@ -49,6 +49,7 @@ select{width:100%;max-width:100%}
 .spot-table-wrap{overflow:auto}#rawAuditTable{width:100%;border-collapse:collapse;font-size:10px}
 #rawAuditTable th,#rawAuditTable td{padding:5px 7px;text-align:right;border-bottom:1px solid #2f4b5d;white-space:nowrap}
 #rawAuditTable th:first-child,#rawAuditTable td:first-child{text-align:left}
+.snapshot-info{border:1px solid #345f7b;background:#0d2235;padding:8px 12px;border-radius:8px;color:#d4effe;margin:-3px 0 12px;font-size:11px}
 .analysis-sources{margin-top:-6px}.analysis-sources #comparisonText{font-size:10px;color:#d1e7f6}
 @media(max-width:1050px){.map-and-ranks{grid-template-columns:minmax(0,1fr) 130px}}
 .score-key{font-size:10px;color:#bddbec;margin:6px 0 0;display:flex;gap:14px;align-items:center}.score-key i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
@@ -78,9 +79,10 @@ select{width:100%;max-width:100%}
   <div class="field"><label>Verifying / valid date (UTC)</label><select id="date"></select></div>
   <div class="field"><label>NDFD snapshot lead · <span id="leadIssued">—</span></label><div class="lead-picker"><button id="leadBack">−</button><input id="lead" type="range" min="12" max="60" step="12" value="12" aria-label="NDFD snapshot lead hours"><button id="leadNext">+</button><strong id="leadValue">−12h</strong></div></div>
   <div class="field"><label>Geographic sample</label><div class="segment"><button data-scope="land" class="active">Land</button><button data-scope="marine">Marine</button><button data-scope="both">Both</button></div></div>
-  <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Forecast − Analysis</button></div></div>
+  <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Forecast − Analysis</button><button data-mapmode="analysis">Analysis only</button></div></div>
 </div>
 <div id="dateStrip" class="date-strip" aria-label="Choose valid date"></div>
+<div class="snapshot-info" id="snapshotInfo" aria-live="polite">Select a historical valid date and snapshot lead to inspect its original forecast issuance.</div>
 <div class="panel sources"><b style="font-size:10px;color:#afdaf1;margin-right:5px">FORECAST GUIDANCE</b>
 <button data-source="ndfd" class="active">Official NDFD</button>
 <button data-source="det">NBM Deterministic</button>
@@ -358,7 +360,10 @@ function renderMap(){
  const data=S.history||S.current;
  if(!data?.points?.length){g.fillStyle='#bdd8e8';g.fillText('No NOAA grid data available',30,40);return}
  const V=view(data.bounds,w,h),points=data.points,layer=selectedLayer();
- const error=S.mapmode==='error';const pair=error?comparison(currentRecord(),S.lead,S.source):null;const vals=error?pair?.values:layer?.values;
+ const error=S.mapmode==='error',analysisOnly=S.mapmode==='analysis';
+ const pair=error?comparison(currentRecord(),S.lead,S.source):null;
+ const displayed=analysisOnly?analysisFor(currentRecord(),S.source):layer;
+ const vals=error?pair?.values:displayed?.values;
  const spacing=data.sampleSpacingDegrees||(points.length>1?Math.abs(points[1].lon-points[0].lon):null)||S.current?.sampleSpacingDegrees||.075;
  let n=0;
  if(vals?.length===points.length){
@@ -395,10 +400,14 @@ function renderMap(){
  }
  drawCities(g,V,points,vals,w,h,error);
  g.fillStyle='#c8e4f5';g.font='10px Poppins';
- g.fillText('WFO MOB · NOAA gridded forecast',12,h-12);
+ g.fillText(analysisOnly?'WFO MOB · Hourly-derived NOAA analysis extrema':'WFO MOB · NOAA gridded forecast',12,h-12);
  mapRender={V,points,vals,canvas,n};
- $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+sourceName()+(error?' − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
- $('mapMeta').textContent='VALID '+(S.date?UTC(S.date):'—')+' · '+(['analysis','rtma'].includes(S.source)?'Analysis':'Snapshot −'+S.lead+'h')+' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
+ $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+
+ (analysisOnly?(S.analysisSource==='analysis'?'URMA':'RTMA')+' analysis ('+(isQmd(S.source)?18:12)+'h)':
+ sourceName()+(error?' − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):''));
+ $('mapMeta').textContent='VALID '+(displayed?.meta?.validUtc?UTC(displayed.meta.validUtc):(S.date?UTC(S.date):'—'))+
+ (analysisOnly?' · Actual hourly-derived '+(isQmd(S.source)?18:12)+'h extrema':' · Historical snapshot −'+S.lead+'h')+
+ ' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
  renderScale(error);
 }
 function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM Deterministic':'NBM P'+S.source}
@@ -572,15 +581,16 @@ function populateRawAudit(){
 }
 function populateStats(){
  const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source),pair=comparison(currentRecord(),S.lead,S.source);
- const stat=field?.stats?.[S.scope],err=pair?.stats?.[S.scope],scope=S.scope;
+ const display=S.mapmode==='analysis'?truth:field;
+ const stat=display?.stats?.[S.scope],err=pair?.stats?.[S.scope],scope=S.scope;
  const write=(id,v,suffix='')=>$(id).textContent=v==null||!finite(v)&&typeof v==='number'?'—':String(typeof v==='number'?Math.round(v*100)/100:v)+suffix;
  write('mean',stat?.mean,'°');write('min',stat?.min,'°');write('max',stat?.max,'°');write('n',stat?.n);
  write('mae',err?.mae,'°');write('bias',err?.bias,'°');
  write('truth',truth?S.analysisSource.toUpperCase()==='ANALYSIS'?'URMA':'RTMA':'No');
- write('period',field?.meta?.stepRange||'—');
- const slot=currentSlot(),m=field?.meta||{};
+ write('period',display?.meta?.stepRange||'—');
+ const slot=currentSlot(),m=display?.meta||{};
  $('details').textContent=[
-  'Forecast: '+sourceName(),'Verifying analysis: '+(S.analysisSource==='analysis'?'URMA':'RTMA'),
+  'Map display: '+(S.mapmode==='analysis'?'ANALYSIS ONLY':S.mapmode==='error'?'FORECAST MINUS ANALYSIS':'ARCHIVED FORECAST'),'Forecast guidance: '+sourceName(),'Verifying analysis: '+(S.analysisSource==='analysis'?'URMA':'RTMA'),
   'Error sign: forecast minus analysis (positive = forecast too warm; negative = too cold)',
   S.date?'Valid '+UTC(S.date):'',
   'NDFD snapshot -'+S.lead+'h',
@@ -601,16 +611,26 @@ function update(){
  $('leadValue').textContent='−'+S.lead+'h';
  $('leadIssued').textContent=currentSlot()?.ndfdReferenceUtc?'Snapshot '+UTC(currentSlot().ndfdReferenceUtc).slice(0,16):'selected lead';
  document.querySelectorAll('#dateStrip [data-date]').forEach(b=>b.classList.toggle('active',b.dataset.date===S.date));
- const layer=selectedLayer(),slot=currentSlot();
+ const layer=selectedLayer(),slot=currentSlot(),truth=analysisFor(currentRecord(),S.source);
  let errors=[];
  if(!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
- if(!layer)errors.push(sourceName()+' is not available for this valid date and selected lead. No synthetic values are plotted.');
+ if(!layer&&S.mapmode!=='analysis')errors.push(sourceName()+' is not available for this valid date and selected lead. No synthetic values are plotted.');
+ if(S.mapmode==='analysis'&&!truth)errors.push('No complete '+(isQmd(S.source)?18:12)+'h '+(S.analysisSource==='analysis'?'URMA':'RTMA')+' analysis available for this date.');
  if(S.mapmode==='error'&&!comparison(currentRecord(),S.lead,S.source)?.values)errors.push('Forecast − selected analysis is unavailable for this date/lead.');
- if(S.metric!=='mean'&&!analysisFor(currentRecord()))errors.push('MAE and bias need the selected URMA or RTMA analysis.');
+ if(S.metric!=='mean'&&!truth)errors.push('MAE and bias need the selected period-matched URMA or RTMA analysis.');
  const pair=comparison(currentRecord(),S.lead,S.source);
  $('comparisonText').textContent='Δ°F = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
   ' · '+(pair?pair.periodHours+'h period matched':'Period match not verified / missing analysis');
- if(!pair&&layer&&currentRecord())errors.push('Period-matched analysis unavailable or GRIB window failed verification. No error/ranking is shown for this source.');
+ if(!pair&&layer&&currentRecord()&&S.mapmode==='error')errors.push('Period-matched analysis unavailable or GRIB window failed verification. No error/ranking is shown for this source.');
+ const valid=S.date?new Date(S.date):null,reference=slot?.ndfdReferenceUtc?new Date(slot.ndfdReferenceUtc):null;
+ const utcFmt=d=>d?d.toLocaleString('en-US',{timeZone:'UTC',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+'Z':'—';
+ const localFmt=d=>d?d.toLocaleString('en-US',{timeZone:'America/Chicago',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})+' CT':'—';
+ const ndfdIssued=layerFor(currentRecord(),S.lead,'ndfd')?.meta?.issuedUtc;
+ $('snapshotInfo').textContent='VALID: '+utcFmt(valid)+' ('+localFmt(valid)+')'+
+  '  |  NDFD reference cutoff: '+utcFmt(reference)+' ('+localFmt(reference)+')'+
+  '  |  Actual NDFD issuance: '+(ndfdIssued?utcFmt(new Date(ndfdIssued)):'unavailable')+
+  '  |  NBM cycle: '+(slot?.nbmCycleUtc?utcFmt(new Date(slot.nbmCycleUtc)):'unavailable')+
+  '  |  Forecasts were issued before the selected valid period ended.';
  $('alert').textContent=errors.join('\n');
  populateStats();populateRawAudit();renderMap();renderGraph();
 }
@@ -657,7 +677,7 @@ mc.addEventListener('pointermove',e=>{
   const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source);
   const fv=field?.values?.[best],av=truth?.values?.[best];
   const fmt=v=>finite(v)?v.toFixed(1)+'°F':'n/a';
-  t.textContent=sourceName()+' '+fmt(fv)+' | '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
+  t.textContent=(S.mapmode==='analysis'?'ANALYSIS VIEW | ':'')+sourceName()+' '+fmt(fv)+' | '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
     ' '+fmt(av)+' | Forecast−analysis '+(finite(fv)&&finite(av)?((fv-av)>=0?'+':'')+(fv-av).toFixed(1)+'°F':'n/a');
  }else t.style.display='none';
 });
