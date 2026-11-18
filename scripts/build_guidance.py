@@ -441,6 +441,18 @@ def read_nbm_field(init_dt, valid_dt, product):
                 msg = fetch_idx_message(NBM_BUCKET, qmd, lines, i)
                 if meta_valid(msg[3]) != qmd_expected_valid:
                     continue
+                # Only the documented 18-hour QMD MinT/MaxT extrema can be
+                # verified against a full 18-hour hourly-analysis window.
+                meta=msg[3]
+                start=safe_float(meta.get("startStep"))
+                end=safe_float(meta.get("endStep"))
+                typ=str(meta.get("stepType") or "").lower()
+                level=str(meta.get("typeOfLevel") or "").lower()
+                if (start is None or end is None or abs(end-start-18)>.01
+                        or typ!=("min" if product=="mint" else "max")
+                        or (level=="heightaboveground" and safe_float(meta.get("level"))!=2)):
+                    print("Rejected QMD nonmatching 18h extrema",qmd,meta.get("stepRange"),typ,flush=True)
+                    continue
                 pct = safe_float(msg[3].get("percentileValue"))
                 if pct not in PERCENTILES:
                     # GRIB2 index is the authoritative percentile inventory.
