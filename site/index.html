@@ -35,7 +35,16 @@ select{width:100%;max-width:100%}
 .date-strip button{flex:1 0 128px;text-align:center;font-size:11px}.date-strip button small{display:block;font-size:9px;opacity:.75;margin-top:3px}.date-strip button.active{outline:2px solid #50c8f4}
 .lead-picker{display:flex;align-items:center;gap:8px}.lead-picker input{flex:1;accent-color:#64cfff;min-width:65px}.lead-picker strong{font-size:15px;color:#d0f8ff;min-width:45px;text-align:right}
 .scale-legend{margin-top:9px}.scale-header{display:flex;justify-content:space-between;color:#bcd7e8;font-size:10px}.scale-ramp{height:15px;border-radius:4px;overflow:hidden;display:flex;border:1px solid #90acc6;margin-top:4px}.scale-ramp span{flex:1}.scale-ticks{display:flex;justify-content:space-between;font-size:9px;color:#d4e6f0;margin-top:3px;font-variant-numeric:tabular-nums}.scale-ticks span{min-width:0;text-align:center}
-.rankings{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.rankings .rank-item{border:1px solid #345169;background:#091d2b;border-radius:7px;padding:6px 9px;font-size:10px;font-weight:600}.rankings .rank-item strong{font-size:12px;margin-right:4px}
+.map-and-ranks{display:grid;grid-template-columns:minmax(0,1fr) 168px;gap:9px;min-width:0}
+.map-and-ranks .surface{min-width:0}
+.ranking-sidebar{background:#071723;border:1px solid #31516a;border-radius:8px;padding:10px 7px;min-width:0;overflow:hidden;max-height:550px;overflow-y:auto}
+.ranking-sidebar>b{font-size:10px;color:#c3e9fa;display:block;margin-bottom:8px;line-height:1.4}
+.rankings{display:flex;flex-direction:column;gap:6px}
+.rankings .rank-item{border:1px solid #345169;background:#102237;border-radius:7px;padding:8px 6px;font-size:10px;line-height:1.5;min-width:0;overflow-wrap:anywhere}
+.rankings .rank-item strong{font-size:13px;margin-right:6px}
+.rank-warning{font-size:9px;color:#90b5c9;margin-top:9px;line-height:1.5}
+.analysis-sources{margin-top:-6px}.analysis-sources #comparisonText{font-size:10px;color:#d1e7f6}
+@media(max-width:1050px){.map-and-ranks{grid-template-columns:minmax(0,1fr) 130px}}
 .score-key{font-size:10px;color:#bddbec;margin:6px 0 0;display:flex;gap:14px;align-items:center}.score-key i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
 
 .legend{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--muted);margin-top:7px}
@@ -66,14 +75,16 @@ select{width:100%;max-width:100%}
   <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Error − Analysis</button></div></div>
 </div>
 <div id="dateStrip" class="date-strip" aria-label="Choose valid date"></div>
-<div class="panel sources"><b style="font-size:10px;color:#afdaf1;margin-right:5px">MAP GUIDANCE</b>
+<div class="panel sources"><b style="font-size:10px;color:#afdaf1;margin-right:5px">FORECAST GUIDANCE</b>
 <button data-source="ndfd" class="active">Official NDFD</button>
 <button data-source="det">NBM Deterministic</button>
 <button data-source="10">NBM P10</button><button data-source="25">NBM P25</button>
 <button data-source="50">NBM P50</button><button data-source="75">NBM P75</button>
 <button data-source="90">NBM P90</button>
-<button data-source="analysis">URMA analysis</button><button data-source="rtma">RTMA analysis</button>
 </div>
+<div class="panel sources analysis-sources"><b style="font-size:10px;color:#afdaf1;margin-right:5px">ANALYSIS REFERENCE</b>
+<button data-analysis="analysis" class="active">URMA</button><button data-analysis="rtma">RTMA</button>
+<span id="comparisonText">Forecast minus analysis · URMA derived 12-hour extrema</span></div>
 <div id="alert" role="status"></div>
 <div class="body">
 <section class="panel visual">
@@ -81,7 +92,9 @@ select{width:100%;max-width:100%}
  <div class="checks"><label><input type="checkbox" id="stateCheck" checked>States</label>
  <label><input type="checkbox" id="countyCheck" checked>Counties</label>
  <label><input type="checkbox" id="cwaCheck" checked>MOB CWA</label><label><input type="checkbox" id="cityCheck" checked>City temperatures</label></div></div>
- <div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
+ <div class="map-and-ranks"><div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
+<aside class="ranking-sidebar"><b id="rankingTitle">Forecast performance ranking</b><div id="rankings" class="rankings"></div>
+<div class="rank-warning" id="rankWarning">Comparisons require matching analysis data.</div></aside></div>
  <div class="scale-legend"><div class="scale-header"><b id="scaleTitle">Temperature · °F</b><span id="scaleCaption">20–110°F</span></div><div id="scaleRamp" class="scale-ramp"></div><div id="scaleTicks" class="scale-ticks"></div></div>
 </section>
 <section class="panel visual">
@@ -90,8 +103,7 @@ select{width:100%;max-width:100%}
  <div class="segment"><button data-chartmode="lead" class="active">Single date · Multiple leads</button><button data-chartmode="daily">Multiple dates · Fixed lead</button></div>
  <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div></div>
  <div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
- <div class="legend"><span>Line segments and dots = continuous performance colors (hover for guidance)</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div><div id="rankings" class="rankings"></div>
-</section>
+ <div class="legend"><span>Line and point colors show overall MAE ranking for the displayed period</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div></section>
 </div>
 <div class="below">
  <div class="panel"><h2>Selected Layer • Spatial Statistics</h2>
@@ -112,7 +124,7 @@ select{width:100%;max-width:100%}
 </div>
 <script>
 'use strict';
-const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',zoom:1,center:null};
+const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',analysisSource:'analysis',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',zoom:1,center:null};
 const C={ndfd:'#ff5359',det:'#62caff','10':'#537fff','25':'#8f8aff','50':'#b5a3fb','75':'#ffb869','90':'#ffd45f'};
 const $=id=>document.getElementById(id),finite=x=>Number.isFinite(x);
 const UTC=s=>new Date(s).toISOString().slice(0,16).replace('T',' ')+'Z';
@@ -120,17 +132,48 @@ function currentDays(){return S.history?.days?.[S.product]||null}
 function currentRecord(){return currentDays()?.[S.date]||null}
 function currentSlot(){return currentRecord()?.leads?.[String(S.lead)]||null}
 function currentForward(){return S.current?.products?.[S.product]?.[S.date]||null}
+function analysisFor(day=currentRecord()){
+ return S.analysisSource==='analysis'?day?.analysis||null:day?.rtma||null;
+}
+function layerFor(day,lead,src){
+ const slot=day?.leads?.[String(lead)];
+ return src==='ndfd'?slot?.ndfd:src==='det'?slot?.nbm?.det:slot?.nbm?.percentiles?.[src]||null;
+}
 function selectedLayer(slot=currentSlot()){
- if(S.source==='analysis')return currentRecord()?.analysis||null;
- if(S.source==='rtma')return currentRecord()?.rtma||null;
- if(slot){if(S.source==='ndfd')return slot.ndfd;if(S.source==='det')return slot.nbm?.det||null;return slot.nbm?.percentiles?.[S.source]||null}
+ if(slot)return layerFor(currentRecord(),S.lead,S.source);
  const f=currentForward();if(!f)return null;
  if(S.source==='ndfd')return f.ndfd;
- if(S.source==='rtma')return null;
  const run=Object.values(f.nbm||{}).find(x=>x.det)||null;
- return S.source==='det'?run?.det:run?.percentiles?.[S.source];
+ return S.source==='det'?run?.det:run?.percentiles?.[S.source]||null;
 }
-function layerFor(day,lead,src){const slot=day?.leads?.[String(lead)];return src==='ndfd'?slot?.ndfd:src==='det'?slot?.nbm?.det:slot?.nbm?.percentiles?.[src]}
+// Compare every forecast source to the *explicitly selected* analysis.
+function comparison(day,lead,src){
+ const field=layerFor(day,lead,src),truth=analysisFor(day);
+ if(!field?.values||!truth?.values||field.values.length!==truth.values.length)return null;
+ const values=[],by={land:[],marine:[],both:[]};
+ const points=S.history?.points||S.current?.points||[];
+ for(let i=0;i<field.values.length;i++){
+  const f=field.values[i],v=truth.values[i],delta=finite(f)&&finite(v)?f-v:null;
+  values.push(delta);
+  if(delta===null)continue;
+  for(const mode of ['land','marine','both'])
+   if(mode==='both'?(points[i]?.land||points[i]?.marine):points[i]?.[mode])by[mode].push(delta);
+ }
+ const stats={};
+ for(const mode of Object.keys(by)){
+  const arr=by[mode],n=arr.length;
+  stats[mode]=n?{mae:arr.reduce((a,b)=>a+Math.abs(b),0)/n,
+    bias:arr.reduce((a,b)=>a+b,0)/n,n}:null;
+ }
+ const slot=day?.leads?.[String(lead)];
+ const differentPeriod=!['ndfd','det'].includes(src)||src==='det'&&slot?.nbm?.validOffsetHours;
+ return {values,stats,differentPeriod,forecast:field,truth};
+}
+function displayMetric(day,lead,src,metric){
+ const field=layerFor(day,lead,src);
+ if(metric==='mean')return field?.stats?.[S.scope]?.mean??null;
+ return comparison(day,lead,src)?.stats?.[S.scope]?.[metric]??null;
+}
 function scopeNode(p){return S.scope==='land'?p.land:S.scope==='marine'?p.marine:!!(p.land||p.marine)}
 function active(group,value){document.querySelectorAll('[data-'+group+']').forEach(e=>e.classList.toggle('active',e.dataset[group]===String(value)))}
 function selDates(){
@@ -227,7 +270,7 @@ function drawCities(g,V,points,vals,w,h){
 let rasterCache={key:null,canvas:null,n:0};
 function smoothRaster(points,vals,spacing,scope,error){
  const key=vals;
- const doSmooth=!error&&(S.source==='ndfd'||S.source==='det');
+ const doSmooth=error||S.source==='ndfd'||S.source==='det';
  if(key===rasterCache.key&&rasterCache.scope===scope&&rasterCache.error===error&&rasterCache.spacing===spacing&&rasterCache.smooth===doSmooth)return rasterCache;
  let west=Infinity,east=-Infinity,south=Infinity,north=-Infinity;
  for(const p of points){west=Math.min(west,p.lon);east=Math.max(east,p.lon);south=Math.min(south,p.lat);north=Math.max(north,p.lat)}
@@ -288,7 +331,7 @@ function renderMap(){
  const data=S.history||S.current;
  if(!data?.points?.length){g.fillStyle='#bdd8e8';g.fillText('No NOAA grid data available',30,40);return}
  const V=view(data.bounds,w,h),points=data.points,layer=selectedLayer();
- const error=S.mapmode==='error'&&!['analysis','rtma'].includes(S.source);const vals=error?layer?.error?.values:layer?.values;
+ const error=S.mapmode==='error';const pair=error?comparison(currentRecord(),S.lead,S.source):null;const vals=error?pair?.values:layer?.values;
  const spacing=data.sampleSpacingDegrees||(points.length>1?Math.abs(points[1].lon-points[0].lon):null)||S.current?.sampleSpacingDegrees||.075;
  let n=0;
  if(vals?.length===points.length){
@@ -327,11 +370,11 @@ function renderMap(){
  g.fillStyle='#c8e4f5';g.font='10px Poppins';
  g.fillText('WFO MOB · NOAA gridded forecast',12,h-12);
  mapRender={V,points,vals,canvas,n};
- $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+sourceName();
- $('mapMeta').textContent='VALID '+(S.date?UTC(S.date):'—')+' · '+(['analysis','rtma'].includes(S.source)?'Analysis':'Snapshot −'+S.lead+'h')+' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − analysis':'');
+ $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+sourceName()+(error?' − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
+ $('mapMeta').textContent='VALID '+(S.date?UTC(S.date):'—')+' · '+(['analysis','rtma'].includes(S.source)?'Analysis':'Snapshot −'+S.lead+'h')+' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
  renderScale(error);
 }
-function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM Deterministic':S.source==='analysis'?'URMA analysis':S.source==='rtma'?'RTMA analysis':'NBM P'+S.source}
+function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM Deterministic':'NBM P'+S.source}
 function metricFor(layer,metric){
  if(!layer)return null;
  if(metric==='mean')return layer.stats?.[S.scope]?.mean??null;
@@ -487,7 +530,7 @@ function populateStats(){
  ].filter(Boolean).join('  •  ');
 }
 function update(){
- active('prod',S.product);active('scope',S.scope);active('source',S.source);
+ active('prod',S.product);active('scope',S.scope);active('source',S.source);active('analysis',S.analysisSource);
  active('chartmode',S.chartmode);active('metric',S.metric);active('mapmode',S.mapmode);
  $('lead').value=String(S.lead);
  $('leadValue').textContent='−'+S.lead+'h';
@@ -497,8 +540,12 @@ function update(){
  let errors=[];
  if(!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
  if(!layer)errors.push(sourceName()+' is not available for this valid date and selected lead. No synthetic values are plotted.');
- if(S.mapmode==='error'&&!layer?.error?.values)errors.push('Error map requires a complete URMA/RTMA derived extrema analysis for this matching period.');
- if(S.metric!=='mean'&&!currentRecord()?.analysis&&!currentRecord()?.rtma)errors.push('MAE/bias graphs require complete URMA or RTMA hourly-derived verifying extrema.');
+ if(S.mapmode==='error'&&!comparison(currentRecord(),S.lead,S.source)?.values)errors.push('Forecast − selected analysis is unavailable for this date/lead.');
+ if(S.metric!=='mean'&&!analysisFor(currentRecord()))errors.push('MAE and bias need the selected URMA or RTMA analysis.');
+ const pair=comparison(currentRecord(),S.lead,S.source);
+ $('comparisonText').textContent=sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
+  ' · '+(pair?.differentPeriod?'Exploratory (forecast/analysis periods differ)':'Matching endpoint comparison');
+ if(pair?.differentPeriod)errors.push('Period mismatch: QMD percentiles are 18h extrema or NBM is offset; errors and rankings are exploratory, NOT period-matched verification.');
  $('alert').textContent=errors.join('\n');
  populateStats();renderMap();renderGraph();
 }
@@ -506,7 +553,8 @@ function changeProduct(x){S.product=x;selDates();update()}
 function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
 evt('[data-prod]','prod',x=>{S.product=x;selDates()});
 evt('[data-scope]','scope',x=>S.scope=x);
-evt('[data-source]','source',x=>{S.source=x;if(x==='analysis'||x==='rtma')S.mapmode='forecast'});
+evt('[data-source]','source',x=>S.source=x);
+evt('[data-analysis]','analysis',x=>S.analysisSource=x);
 evt('[data-chartmode]','chartmode',x=>S.chartmode=x);
 evt('[data-metric]','metric',x=>S.metric=x);
 evt('[data-mapmode]','mapmode',x=>S.mapmode=x);
