@@ -40,7 +40,12 @@ select{width:100%;max-width:100%}
 .ranking-sidebar{background:#071723;border:1px solid #31516a;border-radius:8px;padding:10px 7px;min-width:0;overflow:hidden;max-height:550px;overflow-y:auto}
 .ranking-sidebar>b{font-size:10px;color:#c3e9fa;display:block;margin-bottom:8px;line-height:1.4}
 .rankings{display:flex;flex-direction:column;gap:6px}
-.rankings .rank-item{border:1px solid #345169;background:#102237;border-radius:7px;padding:8px 6px;font-size:10px;line-height:1.5;min-width:0;overflow-wrap:anywhere}
+.rankings .rank-item{border:1px solid #345169;background:#102237;border-radius:7px;padding:8px 6px;font-size:10px;line-height:1.5;min-width:0;overflow-wrap:anywhere;cursor:pointer;transition:background .12s,box-shadow .12s,transform .12s;position:relative}
+.rankings .rank-item:hover{background:#203950}
+.rankings .rank-item:focus-visible{outline:2px solid #c9f4ff;outline-offset:2px}
+.rankings .rank-item.is-focus{background:#24425a;box-shadow:0 0 0 1px #dffaff,0 0 12px #b6eaff68;transform:translateX(-1px)}
+.rankings .rank-item.is-locked:after{content:'●';position:absolute;right:5px;top:4px;font-size:9px;color:#e3faff}
+
 .rankings .rank-item strong{font-size:13px;margin-right:6px}.ranking-group-header{font-size:10px;line-height:1.5;color:#c2e7fa;font-weight:800;margin-top:6px;padding:6px 2px;border-bottom:1px solid #345169}
 .rank-warning{font-size:9px;color:#90b5c9;margin-top:9px;line-height:1.5}
 .spot-audit{margin-top:10px;background:#071723;border:1px solid #31516a;border-radius:7px;padding:8px}
@@ -152,7 +157,7 @@ select{width:100%;max-width:100%}
 </div>
 <script>
 'use strict';
-const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',analysisSource:'analysis',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',showAnalysis12:true,showAnalysis18:true,zoom:1,center:null};
+const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',analysisSource:'analysis',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',showAnalysis12:true,showAnalysis18:true,lockedGuidance:'ndfd',hoverGuidance:null,zoom:1,center:null};
 const C={ndfd:'#ff5359',det:'#62caff','10':'#537fff','25':'#8f8aff','50':'#b5a3fb','75':'#ffb869','90':'#ffd45f'};
 const $=id=>document.getElementById(id),finite=x=>Number.isFinite(x);
 const UTC=s=>new Date(s).toISOString().slice(0,16).replace('T',' ')+'Z';
@@ -444,13 +449,24 @@ function graphLine(g,arr,project,color){
 }
 let graphHits=[];
 const srcTitle=src=>src==='ndfd'?'NDFD':src==='det'?'NBM deterministic':'NBM P'+src;
+const focusedGuidance=()=>S.hoverGuidance||S.lockedGuidance;
+function refreshRankingFocus(){
+ const chosen=focusedGuidance();
+ $('rankings').querySelectorAll('[data-guidance]').forEach(el=>{
+  const src=el.dataset.guidance;
+  el.classList.toggle('is-focus',src===chosen);
+  el.classList.toggle('is-locked',src===S.lockedGuidance);
+  el.setAttribute('aria-pressed',String(src===S.lockedGuidance));
+  el.title=(src===S.lockedGuidance?'Locked — ':'')+'Click to lock '+srcTitle(src)+'; hover to preview';
+ });
+}
 const rankColor=rank=>{
  if(rank===null)return '#71899b';
  const t=Math.max(0,Math.min(1,rank)),lo=t<=.5?[40,220,106]:[255,216,40],
  hi=t<=.5?[255,216,40]:[238,53,70],u=t<=.5?t*2:(t-.5)*2;
  return 'rgb('+lo.map((v,i)=>Math.round(v+(hi[i]-v)*u)).join(',')+')';
 };
-function renderGraph(){
+function renderGraph(rebuildRanking=true){
  const {g,w,h}=prepareCanvas($('graphCanvas'));
  g.fillStyle='#071723';g.fillRect(0,0,w,h);graphHits=[];
  const days=currentDays(),sources=['ndfd','det','10','25','50','75','90'];
@@ -484,7 +500,8 @@ function renderGraph(){
   e.row.rank=frac;e.row.place=i+1;e.row.color=rankColor(frac);e.row.score=e.mae;
   e.row.count=e.count;e.row.period=e.period;e.row.cohortCount=eligible.length;
  }
- const rankBox=$('rankings');rankBox.replaceChildren();
+ const rankBox=$('rankings');
+ if(rebuildRanking){rankBox.replaceChildren();
  $('rankingTitle').textContent='Overall guidance ranking · '+(S.analysisSource==='analysis'?'URMA':'RTMA');
  const selectedDay=days?.[S.date];
  const truth12=analysisFor(selectedDay,'ndfd')?.stats?.[S.scope]?.mean;
@@ -496,12 +513,22 @@ function renderGraph(){
   for(const e of eligible){
    const row=e.row;
    const div=document.createElement('div');div.className='rank-item';div.style.borderColor=row.color;
+   div.dataset.guidance=row.src;div.tabIndex=0;div.setAttribute('role','button');
+   div.addEventListener('pointerenter',()=>{S.hoverGuidance=row.src;refreshRankingFocus();renderGraph(false)});
+   div.addEventListener('pointerleave',()=>{S.hoverGuidance=null;refreshRankingFocus();renderGraph(false)});
+   const lock=()=>{S.lockedGuidance=row.src;S.hoverGuidance=null;refreshRankingFocus();renderGraph(false)};
+   div.addEventListener('click',lock);
+   div.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();lock()}});
+   div.addEventListener('focus',()=>{S.hoverGuidance=row.src;refreshRankingFocus();renderGraph(false)});
+   div.addEventListener('blur',()=>{S.hoverGuidance=null;refreshRankingFocus();renderGraph(false)});
    const number=document.createElement('strong');number.textContent='#'+row.place;number.style.color=row.color;
    const label=document.createElement('span');label.textContent=srcTitle(row.src);
    const val=document.createElement('div');val.textContent=row.score.toFixed(2)+'°F MAE · '+row.count+' periods · '+row.period+'h';
    val.style.color='#b8d8e9';div.append(number,label,val);rankBox.append(div);
   }
  }else rankBox.textContent='No verified forecast/analysis pairs available for ranking.';
+ }
+ refreshRankingFocus();
 
  const analysisSeries=[12,18].map(hours=>({
   hours,values:dates.map(date=>{
@@ -547,21 +574,30 @@ function renderGraph(){
    g.restore();
   }
  }
- for(const row of series){
-  const color=row.color,vals=row.values;
+ const focus=focusedGuidance();
+ // De-emphasize all other guidance while keeping its ranking color.
+ // Paint the focused curve last, so its glow is never obscured by crossing lines.
+ for(const row of series.filter(r=>r.src!==focus).concat(series.filter(r=>r.src===focus))){
+  const color=row.color,vals=row.values,highlight=row.src===focus;
+  const dim=!highlight;
   for(let i=1;i<vals.length;i++){
    if(!finite(vals[i-1])||!finite(vals[i]))continue;
    const [x0,y0]=project(i-1,vals[i-1]),[x1,y1]=project(i,vals[i]);
-   if(row.src==='ndfd'){
+   if(highlight){
     g.save();g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);
-    g.strokeStyle='#dcf8ff';g.lineWidth=7;g.globalAlpha=.55;g.shadowBlur=10;g.shadowColor='#b4f1ff';g.stroke();g.restore();
+    g.strokeStyle='#e4faff';g.lineWidth=9;g.globalAlpha=.8;g.shadowBlur=17;g.shadowColor=color;g.stroke();g.restore();
    }
-   g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.lineWidth=row.src==='ndfd'?3.5:2.8;g.strokeStyle=color;g.stroke();
+   g.save();g.globalAlpha=dim?.42:1;
+   g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.lineWidth=highlight?4.2:2.5;g.strokeStyle=color;g.stroke();
+   g.restore();
   }
   for(let i=0;i<vals.length;i++){
    if(!finite(vals[i]))continue;
-   const [x,y]=project(i,vals[i]);g.beginPath();g.arc(x,y,row.src==='ndfd'?6.1:4.6,0,Math.PI*2);g.fillStyle=color;g.fill();
-   g.strokeStyle=row.src==='ndfd'?'#efffff':'#071723';g.lineWidth=row.src==='ndfd'?2.2:1;g.stroke();
+   const [x,y]=project(i,vals[i]);
+   g.save();g.globalAlpha=dim?.5:1;
+   g.beginPath();g.arc(x,y,highlight?6.3:4.2,0,Math.PI*2);g.fillStyle=color;g.fill();
+   g.strokeStyle=highlight?'#efffff':'#071723';g.lineWidth=highlight?2.4:1;g.stroke();
+   g.restore();
    graphHits.push({x,y,src:row.src,date:dates[i],lead:leads[i],value:vals[i],
     mae:row.maes[i],tier:row.place?'Rank #'+row.place+' / '+row.cohortCount+' ('+row.period+'h)':'Unranked',
     metric:S.metric,periodHours:isQmd(row.src)?18:12});
@@ -569,7 +605,7 @@ function renderGraph(){
  }
  $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':
   'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
- $('graphHint').textContent=S.metric.toUpperCase()+' · '+series.filter(x=>x.values.some(finite)).length+
+ $('graphHint').textContent='Highlighted: '+srcTitle(focusedGuidance())+' (click ranking to lock) · '+S.metric.toUpperCase()+' · '+series.filter(x=>x.values.some(finite)).length+
  ' sources · Combined ranking (12h deterministic / 18h percentiles) against '+(S.analysisSource==='analysis'?'URMA':'RTMA');
  $('graphTooltip').style.display='none';
 }
