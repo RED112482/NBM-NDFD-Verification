@@ -220,6 +220,34 @@ function drawCities(g,V,points,vals,w,h){
    g.beginPath();g.arc(x,y,major?3:2.2,0,2*Math.PI);g.fillStyle='#ffffff';g.fill();
  }
 }
+// Draw an interpolated *display raster* from the actual sampled NOAA fields.
+// Alpha protects masked-out land/marine areas; no unsupported grid values are created.
+// Cache the raster so map panning/zooming does not resample the source on every frame.
+let rasterCache={key:null,canvas:null,n:0};
+function smoothRaster(points,vals,spacing,scope,error){
+ const key=JSON.stringify([vals,spacing,scope,error]);
+ if(key===rasterCache.key)return rasterCache;
+ let west=Infinity,east=-Infinity,south=Infinity,north=-Infinity;
+ for(const p of points){west=Math.min(west,p.lon);east=Math.max(east,p.lon);south=Math.min(south,p.lat);north=Math.max(north,p.lat)}
+ const cols=Math.round((east-west)/spacing)+1,rows=Math.round((north-south)/spacing)+1;
+ if(cols<1||rows<1||cols*rows>1800000)return null;
+ const canvas=document.createElement('canvas');canvas.width=cols;canvas.height=rows;
+ const ctx=canvas.getContext('2d'),img=ctx.createImageData(cols,rows),bytes=img.data;
+ let n=0;
+ for(let i=0;i<points.length;i++){
+  const v=vals[i],p=points[i];if(!finite(v)||!scopeNode(p))continue;
+  const x=Math.round((p.lon-west)/spacing),y=Math.round((north-p.lat)/spacing);
+  if(x<0||x>=cols||y<0||y>=rows)continue;
+  const rgb=colors(v,error).match(/\d+/g);
+  let rgbn;if(rgb?.length>=3)rgbn=rgb.slice(0,3).map(Number);
+  else{const hex=colors(v,error);rgbn=[1,3,5].map(j=>parseInt(hex.slice(j,j+2),16))}
+  const k=(y*cols+x)*4;
+  bytes[k]=rgbn[0];bytes[k+1]=rgbn[1];bytes[k+2]=rgbn[2];bytes[k+3]=255;n++;
+ }
+ ctx.putImageData(img,0,0);
+ rasterCache={key,canvas,n,west,east,south,north,spacing};
+ return rasterCache;
+}
 let mapRender=null;
 function renderMap(){
  const canvas=$('mapCanvas'),{g,w,h}=prepareCanvas(canvas);
@@ -229,15 +257,26 @@ function renderMap(){
  const V=view(data.bounds,w,h),points=data.points,layer=selectedLayer();
  const error=S.mapmode==='error'&&!['analysis','rtma'].includes(S.source);const vals=error?layer?.error?.values:layer?.values;
  const spacing=data.sampleSpacingDegrees||(points.length>1?Math.abs(points[1].lon-points[0].lon):null)||S.current?.sampleSpacingDegrees||.075;
- const dx=spacing*V.cos*V.scale;
- const dy=spacing*V.scale;
  let n=0;
  if(vals?.length===points.length){
-  for(let i=0;i<points.length;i++){
-   const p=points[i],v=vals[i];if(v==null||!finite(v)||!scopeNode(p))continue;
-   const [x,y]=V.map(p.lon,p.lat);g.fillStyle=colors(v,error);
-   g.fillRect(x-dx/2-.35,y-dy/2-.35,dx+.7,dy+.7);n++;
-  }
+   const raster=smoothRaster(points,vals,spacing,S.scope,error);
+   if(raster){
+     // Canvas bilinear texture interpolation smooths the map at any zoom.
+     // Raster pixel centers are the actual sampled grid node locations.
+     const [x0,y0]=V.map(raster.west-spacing/2,raster.north+spacing/2);
+     const [x1,y1]=V.map(raster.east+spacing/2,raster.south-spacing/2);
+     g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
+     g.drawImage(raster.canvas,x0,y0,x1-x0,y1-y0);
+     n=raster.n;
+   }else{
+     // Huge/unexpected geometry fallback.
+     const dx=spacing*V.cos*V.scale,dy=spacing*V.scale;
+     for(let i=0;i<points.length;i++){
+       const p=points[i],v=vals[i];if(!finite(v)||!scopeNode(p))continue;
+       const [x,y]=V.map(p.lon,p.lat);g.fillStyle=colors(v,error);
+       g.fillRect(x-dx/2,y-dy/2,dx,dy);n++;
+     }
+   }
  }else{g.fillStyle='#b9dded';g.font='13px Poppins';g.fillText('No matching gridded field for this selection',24,44)}
  const boundaries=(S.current?.boundaries?.counties?.features?.length ? S.current.boundaries : data.boundaries)||{};
  const layers=[['states','stateCheck','#819dad',1],['counties','countyCheck','#c2d5da',.65],['cwa','cwaCheck','#f7faff',2]];
