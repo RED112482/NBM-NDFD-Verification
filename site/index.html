@@ -92,9 +92,7 @@ select{width:100%;max-width:100%}
  <div class="checks"><label><input type="checkbox" id="stateCheck" checked>States</label>
  <label><input type="checkbox" id="countyCheck" checked>Counties</label>
  <label><input type="checkbox" id="cwaCheck" checked>MOB CWA</label><label><input type="checkbox" id="cityCheck" checked>City temperatures</label></div></div>
- <div class="map-and-ranks"><div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
-<aside class="ranking-sidebar"><b id="rankingTitle">Forecast performance ranking</b><div id="rankings" class="rankings"></div>
-<div class="rank-warning" id="rankWarning">Comparisons require matching analysis data.</div></aside></div>
+ <div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
  <div class="scale-legend"><div class="scale-header"><b id="scaleTitle">Temperature · °F</b><span id="scaleCaption">20–110°F</span></div><div id="scaleRamp" class="scale-ramp"></div><div id="scaleTicks" class="scale-ticks"></div></div>
 </section>
 <section class="panel visual">
@@ -102,8 +100,10 @@ select{width:100%;max-width:100%}
  <div class="graph-options">
  <div class="segment"><button data-chartmode="lead" class="active">Single date · Multiple leads</button><button data-chartmode="daily">Multiple dates · Fixed lead</button></div>
  <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div></div>
- <div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
- <div class="legend"><span>Line and point colors show overall MAE ranking for the displayed period</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div></section>
+ <div class="map-and-ranks"><div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
+<aside class="ranking-sidebar"><b id="rankingTitle">Forecast performance ranking</b><div id="rankings" class="rankings"></div>
+<div class="rank-warning" id="rankWarning">Comparisons require matching analysis data.</div></aside></div>
+ <div class="legend"><span>Colors = MAE performance • NDFD = glowing outlined line</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div></section>
 </div>
 <div class="below">
  <div class="panel"><h2>Selected Layer • Spatial Statistics</h2>
@@ -430,7 +430,7 @@ function renderGraph(){
  }
  const rankBox=$('rankings');rankBox.innerHTML='';
  $('rankingTitle').textContent='Forecast ranking · '+(S.analysisSource==='analysis'?'URMA':'RTMA');
- $('rankWarning').textContent='Sorted by averaged grid MAE for displayed '+(S.chartmode==='daily'?'dates':'leads')+
+ $('rankWarning').textContent='NDFD is highlighted with a white glow in the graph. Sorted by averaged grid MAE for displayed '+(S.chartmode==='daily'?'dates':'leads')+
   '. Percentiles (18h QMD) and shifted valid times are exploratory comparisons against 12h extrema.';
  if(eligible.length){
   for(const row of series.filter(row=>row.place!==null).sort((a,b)=>a.place-b.place)){
@@ -466,12 +466,16 @@ function renderGraph(){
   for(let i=1;i<vals.length;i++){
    if(!finite(vals[i-1])||!finite(vals[i]))continue;
    const [x0,y0]=project(i-1,vals[i-1]),[x1,y1]=project(i,vals[i]);
-   g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.lineWidth=3.0;g.strokeStyle=color;g.stroke();
+   if(row.src==='ndfd'){
+    g.save();g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);
+    g.strokeStyle='#dcf8ff';g.lineWidth=7;g.globalAlpha=.55;g.shadowBlur=10;g.shadowColor='#b4f1ff';g.stroke();g.restore();
+   }
+   g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.lineWidth=row.src==='ndfd'?3.5:2.8;g.strokeStyle=color;g.stroke();
   }
   for(let i=0;i<vals.length;i++){
    if(!finite(vals[i]))continue;
-   const [x,y]=project(i,vals[i]);g.beginPath();g.arc(x,y,4.6,0,Math.PI*2);g.fillStyle=color;g.fill();
-   g.strokeStyle='#071723';g.lineWidth=1;g.stroke();
+   const [x,y]=project(i,vals[i]);g.beginPath();g.arc(x,y,row.src==='ndfd'?6.1:4.6,0,Math.PI*2);g.fillStyle=color;g.fill();
+   g.strokeStyle=row.src==='ndfd'?'#efffff':'#071723';g.lineWidth=row.src==='ndfd'?2.2:1;g.stroke();
    graphHits.push({x,y,src:row.src,date:dates[i],lead:leads[i],value:vals[i],
     mae:row.maes[i],tier:row.place?'Rank #'+row.place+' / '+eligible.length:'Unranked',
     metric:S.metric,exploratory:!['ndfd','det'].includes(row.src)});
