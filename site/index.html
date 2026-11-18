@@ -103,7 +103,7 @@ select{width:100%;max-width:100%}
  <div class="map-and-ranks"><div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
 <aside class="ranking-sidebar"><b id="rankingTitle">Forecast performance ranking</b><div id="rankings" class="rankings"></div>
 <div class="rank-warning" id="rankWarning">Comparisons require matching analysis data.</div></aside></div>
- <div class="legend"><span><b style="color:#fff">White dashed = 12h analysis</b> · <b style="color:#85ebff">Cyan dashed = 18h analysis</b> · Line colors = MAE rank · NDFD glows</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div></section>
+ <div class="legend"><span><b style="color:#fff">White dashed = 12h analysis</b> · <b style="color:#85ebff">Cyan dashed = 18h analysis</b> · Line colors = MAE rank · NDFD glows</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>0°F MAE</span><span><i style="background:#f4d94c"></i>5°F MAE</span><span><i style="background:#ff6363"></i>10°F+ MAE</span><span>Gray = unverified</span></div></section>
 </div>
 <div class="below">
  <div class="panel"><h2>Selected Layer • Spatial Statistics</h2>
@@ -440,9 +440,11 @@ function renderGraph(){
  for(const row of series){row.rank=null;row.place=null;row.color='#8493a5';row.score=null}
  for(const period of [12,18]){
   const cohort=eligible.filter(x=>x.period===period).sort((a,b)=>a.mae-b.mae);
-  const best=cohort[0]?.mae,worst=cohort.at(-1)?.mae;
+  // Relative rank order remains within the valid 12h/18h verification cohort.
   for(let i=0;i<cohort.length;i++){
-   const e=cohort[i],frac=worst>best?(e.mae-best)/(worst-best):.5;
+   const e=cohort[i],frac=Math.max(0,Math.min(1,e.mae/10));
+   // Absolute skill scale: 0F MAE green, 5F yellow, >=10F red.
+   // Never paint a high-MAE forecast green just because a competitor is worse.
    e.row.rank=frac;e.row.place=i+1;e.row.color=rankColor(frac);e.row.score=e.mae;
    e.row.count=e.count;e.row.period=period;e.row.cohortCount=cohort.length;
   }
@@ -452,7 +454,7 @@ function renderGraph(){
  const selectedDay=days?.[S.date];
  const truth12=analysisFor(selectedDay,'ndfd')?.stats?.[S.scope]?.mean;
  const truth18=analysisFor(selectedDay,'50')?.stats?.[S.scope]?.mean;
- $('rankWarning').textContent='Selected analysis mean: 12h '+(finite(truth12)?truth12.toFixed(1)+'°F':'unavailable')+
+ $('rankWarning').textContent='Absolute color scale: 0°F MAE green, 5°F yellow, ≥10°F red. Selected analysis mean: 12h '+(finite(truth12)?truth12.toFixed(1)+'°F':'unavailable')+
   ' · 18h '+(finite(truth18)?truth18.toFixed(1)+'°F':'unavailable')+
   '. NDFD glows white; rankings are separate by forecast verification window.';
  if(eligible.length){
