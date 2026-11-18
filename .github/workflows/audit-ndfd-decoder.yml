@@ -17,8 +17,11 @@ jobs:
           python-version: "3.12"
       - name: Install separate GRIB decoders
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libg2c-dev
           python -m pip install --upgrade pip
-          pip install numpy boto3 eccodes grib2io
+          pip install numpy boto3 eccodes
+          pip install grib2io --config-settings=cmake.define.GRIB2IO_WITH_IP=OFF
       - name: Compare NOAA NDFD raw MinT archive by independent decoders
         run: |
           python - <<'PY'
