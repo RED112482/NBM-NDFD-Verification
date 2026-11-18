@@ -213,7 +213,7 @@ const BIAS_STOPS=[[-20,'#000000'],[-10,'#ffffff'],[-5,'#00ffff'],[-2,'#1769ff'],
 function renderScale(error){
  const stops=error?BIAS_STOPS:TEMP_STOPS;
  $('scaleTitle').textContent=error?'Forecast − selected analysis · °F':'Temperature · °F';
- $('scaleCaption').textContent=error?'Negative too cold · Positive too warm':'20–110°F · 10° steps';
+ $('scaleCaption').textContent=error?'Δ °F: − colder forecast, + warmer forecast':'20–110°F · 10° steps';
  const ramp=$('scaleRamp'),ticks=$('scaleTicks');ramp.innerHTML='';ticks.innerHTML='';
  for(let i=0;i<180;i++){const v=(error?-20:20)+(error?40:90)*(i+.5)/180,el=document.createElement('span');el.style.background=gradient(v,stops);ramp.append(el)}
  for(let v=error?-20:20;v<=(error?20:110);v+=error?2:10){const el=document.createElement('span');el.textContent=String(v);ticks.append(el)}
@@ -257,7 +257,7 @@ const CITIES=[
  ['Destin',30.3935,-86.4958,0],['DeFuniak Springs',30.7210,-86.1152,0],['Andalusia',31.3085,-86.4833,0],
  ['Chatom',31.4654,-88.2547,0],['Butler',32.0896,-88.2217,0],['New Augusta',31.2027,-89.0323,0]
 ];
-function drawCities(g,V,points,vals,w,h){
+function drawCities(g,V,points,vals,w,h,errorMode=false){
  if(!$('cityCheck').checked||!vals?.length)return;
  const occupied=[];
  const visible=(x,y,b)=>x>=8&&y>=12&&x+b<w-8&&y<h-12;
@@ -271,7 +271,7 @@ function drawCities(g,V,points,vals,w,h){
      if(d<dmin){dmin=d;best=i}
    }
    if(best<0||dmin>.065)continue;
-   const label=name+' '+Math.round(vals[best])+'°';
+   const v=Math.round(vals[best]);const label=name+' '+(errorMode?'Δ '+(v>0?'+':'')+v+'°':v+'°');
    const fs=major?12:10;g.font=(major?'700 ':'600 ')+fs+'px Poppins';
    const textW=g.measureText(label).width;
    const lx=x+7,ly=y-15,rect=[lx-4,ly-9,textW+8,18];
@@ -384,7 +384,7 @@ function renderMap(){
   for(const f of collection.features)traceGeo(g,f.geometry,V.map);
   g.stroke();
  }
- drawCities(g,V,points,vals,w,h);
+ drawCities(g,V,points,vals,w,h,error);
  g.fillStyle='#c8e4f5';g.font='10px Poppins';
  g.fillText('WFO MOB · NOAA gridded forecast',12,h-12);
  mapRender={V,points,vals,canvas,n};
@@ -545,7 +545,7 @@ function update(){
  if(S.mapmode==='error'&&!comparison(currentRecord(),S.lead,S.source)?.values)errors.push('Forecast − selected analysis is unavailable for this date/lead.');
  if(S.metric!=='mean'&&!analysisFor(currentRecord()))errors.push('MAE and bias need the selected URMA or RTMA analysis.');
  const pair=comparison(currentRecord(),S.lead,S.source);
- $('comparisonText').textContent='ERROR = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
+ $('comparisonText').textContent='Δ°F = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
   ' · '+(pair?pair.periodHours+'h period matched':'Period match not verified / missing analysis');
  if(!pair&&layer&&currentRecord())errors.push('Period-matched analysis unavailable or GRIB window failed verification. No error/ranking is shown for this source.');
  $('alert').textContent=errors.join('\n');
@@ -589,7 +589,7 @@ mc.addEventListener('pointermove',e=>{
  const x=e.clientX-rect.left,y=e.clientY-rect.top;
  let best=null,dist=Infinity;
  for(let i=0;i<pts.length;i++){if(!scopeNode(pts[i])||!finite(vals[i]))continue;const [px,py]=v.map(pts[i].lon,pts[i].lat),d=(px-x)**2+(py-y)**2;if(d<dist){best=i;dist=d}}
- if(best!=null&&dist<450){t.style.display='block';t.style.left=Math.min(rect.width-110,x+12)+'px';t.style.top=Math.max(2,y-27)+'px';t.textContent=vals[best].toFixed(1)+'°F'}else t.style.display='none';
+ if(best!=null&&dist<450){t.style.display='block';t.style.left=Math.min(rect.width-110,x+12)+'px';t.style.top=Math.max(2,y-27)+'px';t.textContent=(S.mapmode==='error'?'Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+': ':'')+(S.mapmode==='error'&&vals[best]>0?'+':'')+vals[best].toFixed(1)+'°F'}else t.style.display='none';
 });
 mc.addEventListener('pointerleave',()=>{$('mapTooltip').style.display='none'});
 mc.addEventListener('wheel',e=>{e.preventDefault();S.zoom=Math.max(.65,Math.min(7,S.zoom*(e.deltaY>0?.86:1.16)));renderMap()},{passive:false});
