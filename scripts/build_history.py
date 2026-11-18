@@ -206,7 +206,6 @@ def ndfd_grib_before(reference, valid, product, points):
     must never be treated as the full official NDFD forecast grid."""
     land_count=sum(bool(p["land"]) for p in points)
     min_coverage=max(1,math.ceil(.80*land_count))
-    best=None
     for issued,key in ndfd_keys_before(reference,product):
         try:
             raw=s3.get_object(Bucket=NDFD_BUCKET,Key=key)["Body"].read()
@@ -217,13 +216,10 @@ def ndfd_grib_before(reference, valid, product, points):
                 n=local["n"] if local else 0
                 if n < min_coverage:
                     continue
-                if best is None or (issued,n)>(best[0],best[1]):
-                    best=(issued,n,content)
+                content["meta"]["landCoverageFraction"]=round(n/land_count,3)
+                return content
         except Exception as exc:
             print("NDFD warning",product,valid,repr(exc),flush=True)
-    if best:
-        best[2]["meta"]["landCoverageFraction"]=round(best[1]/land_count,3)
-        return best[2]
     print("NDFD rejected: no 12h field covering 80% MOB land",
           product,iso(valid),iso(reference),flush=True)
     return None
