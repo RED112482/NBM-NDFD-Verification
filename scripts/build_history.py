@@ -62,9 +62,15 @@ def grid_values(grib, points):
     coords = np.column_stack((local_lat, local_lon*scl))
     query = np.column_stack((yy, xx*scl))
     distances, indices = cKDTree(coords).query(query, k=4)
+    # Never extrapolate regional GRIB sectors across the WFO. Prior code
+    # assigned a temperature even when the nearest GRIB point was remote;
+    # consequently the 80% MOB coverage test could always pass.
+    # 0.065 latitude-equivalent degrees ~ 7.2 km, > native 2.5km cell.
+    near=distances[:,0] <= 0.065
     weights = 1.0 / np.maximum(distances, 1e-9) ** 2
     weights /= weights.sum(axis=1, keepdims=True)
     chosen = np.sum(np.asarray(vals[mask][indices], dtype=float) * weights, axis=1)
+    chosen[~near] = np.nan
     return [round(float(v), 1) if np.isfinite(v) else None for v in chosen]
 
 
@@ -131,8 +137,11 @@ def list_ndfd(day, product):
         for obj in result.get("Contents", []):
             key = obj.get("Key","")
             name = key.split("/")[-1]
-            # CONUS NWS WMO products; exclude indexes and unrelated sectors.
-            if "KWBN" not in name or not name.endswith(".bin") and ".bin" in name:
+            # Do not pick arbitrary NDFD regional/WMO bulletins. Require
+            # the native CONUS 2.5km MinT/MaxT short/extended family.
+            # Day 1-3 uses Z98; Day 4-7 uses Z97.
+            expected=("YHU" if product=="mint" else "YGU")
+            if not name.startswith((expected+"Z98_KWBN_",expected+"Z97_KWBN_")):
                 continue
             stamp = re.search(r"(20\d{10})", name)
             if not stamp: continue
