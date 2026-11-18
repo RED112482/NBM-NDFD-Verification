@@ -75,9 +75,9 @@ def grid_values(grib, points, max_nearest_distance=None):
 
 
 def payload(grib, points, source, issued=None):
-    # Only the NDFD geographic coverage test needs strict nearest-node
-    # bounds; preserve previously working URMA/RTMA and QMD sampling.
-    strict = source.startswith("NDFD WMO")
+    # Apply spatial coverage checks to NDFD and deterministic NBM only;
+    # preserve previously working URMA/RTMA and QMD sampling.
+    strict = source.startswith("NDFD WMO") or source == "NBM core"
     values = grid_values(grib, points,
                          max_nearest_distance=0.065 if strict else None)
     meta = grib[3]
