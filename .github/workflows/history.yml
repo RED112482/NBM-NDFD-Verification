@@ -8,6 +8,8 @@ on:
     branches: [main]
     paths:
       - "scripts/build_history.py"
+      - "scripts/build_guidance.py"
+      - "site/data/guidance.json"
       - ".github/workflows/history.yml"
 
 permissions:
