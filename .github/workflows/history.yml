@@ -33,7 +33,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install GRIB and spatial dependencies
-        run: pip install -r requirements.txt
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libg2c-dev
+          pip install -r requirements.txt
+          pip install grib2io --config-settings=cmake.define.GRIB2IO_WITH_IP=OFF
       - name: Generate actual historical grids from NOAA Open Data
         env:
           HISTORY_DAYS: "5"
@@ -70,6 +74,8 @@ jobs:
                       problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"not 12 hours"))
                   if source=="ndfd" and meta.get("landCoverageFraction",0)<0.8:
                       problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"insufficient coverage"))
+                  if source=="ndfd" and meta.get("decoder")!="NOAA-MDL grib2io":
+                      problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"wrong decoder"))
                   if meta.get("actualWindowEndUtc")!=row["validUtc"]:
                       problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"end mismatch"))
                   actual_start=datetime.fromisoformat(row["validUtc"].replace("Z","+00:00"))-timedelta(hours=12)
