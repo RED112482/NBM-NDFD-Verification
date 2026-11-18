@@ -103,7 +103,7 @@ select{width:100%;max-width:100%}
  <div class="map-and-ranks"><div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
 <aside class="ranking-sidebar"><b id="rankingTitle">Forecast performance ranking</b><div id="rankings" class="rankings"></div>
 <div class="rank-warning" id="rankWarning">Comparisons require matching analysis data.</div></aside></div>
- <div class="legend"><span>Colors = MAE performance • NDFD = glowing outlined line</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div></section>
+ <div class="legend"><span><b style="color:#fff">White dashed = 12h analysis</b> · <b style="color:#85ebff">Cyan dashed = 18h analysis</b> · Line colors = MAE rank · NDFD glows</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div></section>
 </div>
 <div class="below">
  <div class="panel"><h2>Selected Layer • Spatial Statistics</h2>
@@ -449,7 +449,12 @@ function renderGraph(){
  }
  const rankBox=$('rankings');rankBox.innerHTML='';
  $('rankingTitle').textContent='Forecast ranking · '+(S.analysisSource==='analysis'?'URMA':'RTMA');
- $('rankWarning').textContent='NDFD has white glow. Ranked within each valid-period family only: 12h NDFD/NBM deterministic and 18h QMD percentiles. Ineligible or missing source windows are excluded.';
+ const selectedDay=days?.[S.date];
+ const truth12=analysisFor(selectedDay,'ndfd')?.stats?.[S.scope]?.mean;
+ const truth18=analysisFor(selectedDay,'50')?.stats?.[S.scope]?.mean;
+ $('rankWarning').textContent='Selected analysis mean: 12h '+(finite(truth12)?truth12.toFixed(1)+'°F':'unavailable')+
+  ' · 18h '+(finite(truth18)?truth18.toFixed(1)+'°F':'unavailable')+
+  '. NDFD glows white; rankings are separate by forecast verification window.';
  if(eligible.length){
   for(const period of [12,18]){
    const rows=series.filter(row=>row.place!==null&&row.period===period).sort((a,b)=>a.place-b.place);
@@ -467,7 +472,15 @@ function renderGraph(){
   }
  }else rankBox.textContent='No period-matched forecast/analysis pairs available.';
 
- const all=series.flatMap(row=>row.values.filter(finite));
+ const analysisSeries=[12,18].map(hours=>({
+  hours,values:dates.map(date=>{
+    const day=days?.[date],a=analysisFor(day,hours===18?'50':'ndfd');
+    return a?.stats?.[S.scope]?.mean??null;
+  })
+ }));
+ const all=series.flatMap(row=>row.values.filter(finite)).concat(
+  S.metric==='mean'?analysisSeries.flatMap(row=>row.values.filter(finite)):[]);
+
  if(!all.length){
   g.fillStyle='#b8d8ec';g.font='13px Poppins';g.fillText('No matching plotted values. Check source, dates and analysis availability.',20,70);
   $('graphHint').textContent='No data';return;
@@ -481,6 +494,27 @@ function renderGraph(){
   g.fillText(v.toFixed(1)+'°',5,y+4);
  }
  for(let i=0;i<labels.length;i++){const x=project(i,lo)[0];g.fillText(labels[i],Math.max(2,x-16),h-22)}
+ if(S.metric==='mean'){
+  for(const a of analysisSeries){
+   const color=a.hours===12?'#ffffff':'#85ebff';
+   g.save();g.setLineDash(a.hours===12?[8,5]:[3,4]);
+   for(let i=1;i<a.values.length;i++){
+    if(!finite(a.values[i-1])||!finite(a.values[i]))continue;
+    const [x0,y0]=project(i-1,a.values[i-1]),[x1,y1]=project(i,a.values[i]);
+    g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);
+    g.strokeStyle=color;g.globalAlpha=.95;g.lineWidth=2.8;g.stroke();
+   }
+   for(let i=0;i<a.values.length;i++){
+    if(!finite(a.values[i]))continue;
+    const [x,y]=project(i,a.values[i]);
+    g.beginPath();g.arc(x,y,4,0,2*Math.PI);g.fillStyle=color;g.fill();
+    graphHits.push({x,y,src:'analysis'+a.hours,date:dates[i],lead:leads[i],
+      value:a.values[i],mae:null,tier:a.hours+'h verifying analysis',
+      metric:'mean',periodHours:a.hours,analysis:true});
+   }
+   g.restore();
+  }
+ }
  for(const row of series){
   const color=row.color,vals=row.values;
   for(let i=1;i<vals.length;i++){
@@ -571,8 +605,8 @@ gc.addEventListener('pointermove',e=>{
  const tip=$('graphTooltip'),rect=gc.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;
  const h=graphHits.reduce((best,q)=>{const d=(q.x-x)**2+(q.y-y)**2;return d<(best?.d??Infinity)?{q,d}:best},null);
  if(!h||h.d>225){tip.style.display='none';return}
- const q=h.q,score=finite(q.mae)?' · '+q.periodHours+'h grid MAE '+q.mae.toFixed(1)+'°F':' · No period-matched analysis';
- tip.textContent=srcTitle(q.src)+' | Valid '+(q.date?UTC(q.date):'—')+
+ const q=h.q,score=q.analysis?' · Reference (not ranked)':finite(q.mae)?' · '+q.periodHours+'h grid MAE '+q.mae.toFixed(1)+'°F':' · No period-matched analysis';
+ tip.textContent=(q.analysis?q.periodHours+'h URMA/RTMA analysis':srcTitle(q.src))+' | Valid '+(q.date?UTC(q.date):'—')+
  ' | −'+q.lead+'h | '+q.metric.toUpperCase()+' '+q.value.toFixed(1)+'°F | '+q.tier+score;
  tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-275,x+12))+'px';
  tip.style.top=Math.max(4,y-52)+'px';
