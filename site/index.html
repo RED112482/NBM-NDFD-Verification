@@ -330,11 +330,22 @@ function renderGraph(){
  }
  $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
  $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series · hover markers';
+ $('graphTooltip').style.display='none';
 }
 function populateStats(){
  const layer=selectedLayer(),scope=S.scope;
  const stat=layer?.stats?.[scope],err=layer?.error?.stats?.[scope];
  const write=(id,v,suffix='')=>$(id).textContent=v==null?'—':String(v)+suffix;
+ const verified=['ndfd','det','10','25','50','75','90']
+   .map(src=>layerFor(currentRecord(),S.lead,src)?.error?.stats?.[scope]?.mae).filter(finite);
+ const currMae=err?.mae;
+ for(const id of ['mae','bias'])$(id).classList.remove('good','medium','bad');
+ if(finite(currMae)&&verified.length>1){
+  const low=Math.min(...verified),high=Math.max(...verified);
+  const relative=high>low?(currMae-low)/(high-low):0;
+  const rating=relative<=1/3?'good':relative<=2/3?'medium':'bad';
+  $('mae').classList.add(rating);$('bias').classList.add(rating);
+ }
  write('mean',stat?.mean,'°');write('min',stat?.min,'°');write('max',stat?.max,'°');write('n',stat?.n);
  write('mae',err?.mae,'°');write('bias',err?.bias,'°');write('truth',!!currentRecord()?.analysis?'URMA':currentRecord()?.rtma?'RTMA fallback':'No');
  write('period',layer?.meta?.stepRange||'—');
