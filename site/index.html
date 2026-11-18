@@ -49,6 +49,12 @@ select{width:100%;max-width:100%}
 .spot-table-wrap{overflow:auto}#rawAuditTable{width:100%;border-collapse:collapse;font-size:10px}
 #rawAuditTable th,#rawAuditTable td{padding:5px 7px;text-align:right;border-bottom:1px solid #2f4b5d;white-space:nowrap}
 #rawAuditTable th:first-child,#rawAuditTable td:first-child{text-align:left}
+#leadAuditTable{border-collapse:collapse;width:100%;font-size:9px}
+#leadAuditTable th,#leadAuditTable td{padding:6px 5px;white-space:nowrap;border-bottom:1px solid #2c485e;text-align:right}
+#leadAuditTable th:first-child,#leadAuditTable td:first-child{text-align:left}
+#leadAuditTable tr.long-lead{background:#18334b}
+#leadAuditTable tr.selected-lead{outline:1px solid #95e4ff}
+#leadAuditTable .positive{color:#ffb6b6}#leadAuditTable .negative{color:#87dfff}
 .snapshot-info{border:1px solid #345f7b;background:#0d2235;padding:8px 12px;border-radius:8px;color:#d4effe;margin:-3px 0 12px;font-size:11px}
 .analysis-sources{margin-top:-6px}.analysis-sources #comparisonText{font-size:10px;color:#d1e7f6}
 @media(max-width:1050px){.map-and-ranks{grid-template-columns:minmax(0,1fr) 130px}}
@@ -105,6 +111,10 @@ select{width:100%;max-width:100%}
  <details class="spot-audit"><summary>Inspect raw NDFD/NBM grids · 6 sampled locations</summary>
  <div class="spot-explain">Unsmoothed values interpolated from native GRIB grids onto common map sample points near each city—not station observations. All deterministic comparisons use the same 12-hour URMA/RTMA window.</div>
  <div class="spot-table-wrap"><table id="rawAuditTable"><thead><tr><th>Location</th><th>NDFD</th><th>NBM Det</th><th>Analysis</th><th>NDFD Δ</th><th>NBM Δ</th></tr></thead><tbody></tbody></table></div></details>
+ <details class="spot-audit" id="longLeadAudit"><summary>Inspect Days 1–5 · NDFD vs NBM deterministic, original forecast snapshots</summary>
+ <div class="spot-explain">Mean °F and pointwise MAE use unsmoothed interpolated fields on common MOB sample points. Positive bias means the forecast was too warm. Bold rows identify Days 3–5. Missing or mismatched periods are shown as unavailable, not estimated.</div>
+ <div class="spot-table-wrap"><table id="leadAuditTable"><thead><tr><th>Cutoff / lead</th><th>NDFD issuance (Z)</th><th>NBM cycle (Z)</th><th>NDFD mean</th><th>NBM mean</th><th>Analysis mean</th><th>NDFD MAE</th><th>NBM MAE</th><th>NDFD bias</th><th>NBM bias</th><th>NDFD − NBM</th></tr></thead><tbody></tbody></table></div>
+ </details>
 </section>
 <section class="panel visual">
  <div class="top"><div><h2 id="graphTitle">Forecast Evolution</h2><div class="meta">All series are matched to the same valid date/time</div></div></div>
@@ -561,6 +571,33 @@ function renderGraph(){
  ' sources · Rankings separated by 12h and 18h periods against '+(S.analysisSource==='analysis'?'URMA':'RTMA');
  $('graphTooltip').style.display='none';
 }
+function populateLeadAudit(){
+ const body=$('leadAuditTable').querySelector('tbody');body.replaceChildren();
+ const day=currentRecord(),truth=analysisFor(day,'ndfd')?.stats?.[S.scope]?.mean;
+ const fmt=v=>finite(v)?v.toFixed(1)+'°':'—';
+ const err=v=>finite(v)?(v>0?'+':'')+v.toFixed(1)+'°':'—';
+ const ztime=t=>t?new Date(t).toISOString().slice(5,16).replace('T',' '):'—';
+ for(const lead of [12,24,36,48,60]){
+  const slot=day?.leads?.[String(lead)],ndfd=slot?.ndfd,det=slot?.nbm?.det;
+  const ns=ndfd?.stats?.[S.scope],bs=det?.stats?.[S.scope];
+  const na=comparison(day,lead,'ndfd')?.stats?.[S.scope],ba=comparison(day,lead,'det')?.stats?.[S.scope];
+  const delta=finite(ns?.mean)&&finite(bs?.mean)?ns.mean-bs.mean:null;
+  const row=document.createElement('tr');if(lead>=36)row.classList.add('long-lead');
+  if(lead===S.lead)row.classList.add('selected-lead');
+  const cols=['−'+lead+'h / '+ztime(slot?.ndfdReferenceUtc),ztime(ndfd?.meta?.issuedUtc),
+    ztime(slot?.nbmCycleUtc),fmt(ns?.mean),fmt(bs?.mean),fmt(truth),
+    fmt(na?.mae),fmt(ba?.mae),err(na?.bias),err(ba?.bias),err(delta)];
+  for(let i=0;i<cols.length;i++){
+   const cell=document.createElement('td');cell.textContent=cols[i];
+   if(i>=8){const v=i===8?na?.bias:i===9?ba?.bias:delta;
+    if(finite(v))cell.className=v>0?'positive':v<0?'negative':''}
+   row.append(cell);
+  }
+  row.title='Select the '+lead+'-hour cutoff';row.style.cursor='pointer';
+  row.addEventListener('click',()=>{S.lead=lead;update()});
+  body.append(row);
+ }
+}
 function populateRawAudit(){
  const tbody=$('rawAuditTable').querySelector('tbody');tbody.replaceChildren();
  const checks=currentSlot()?.diagnostics?.sampledPoints||{};
@@ -636,7 +673,7 @@ function update(){
   ' → '+(slot?.expectedWindowEndUtc?utcFmt(new Date(slot.expectedWindowEndUtc)):'—')+
   '  |  Cutoff selects newest archived NDFD available by that time (not necessarily exactly at cutoff).';
  $('alert').textContent=errors.join('\n');
- populateStats();populateRawAudit();renderMap();renderGraph();
+ populateStats();populateRawAudit();populateLeadAudit();renderMap();renderGraph();
 }
 function changeProduct(x){S.product=x;selDates();update()}
 function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
