@@ -56,6 +56,27 @@ jobs:
           print("NBM deterministic available:",
                 sum(bool(x["nbm"]["det"]) for entries in p["days"].values()
                     for day in entries.values() for x in day["leads"].values()))
+          assert len(p.get("audit", [])) >= 50, "Expected 5 days x 5 leads x 2 elements"
+          problems=[]
+          for row in p["audit"]:
+              for source in ("ndfd", "nbmDet"):
+                  item=row.get(source, {})
+                  if "meta" not in item:
+                      continue
+                  meta=item["meta"]
+                  start,end=meta.get("startStep"),meta.get("endStep")
+                  if start is None or end is None or abs((end-start)-12)>0.01:
+                      problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"not 12 hours"))
+                  if source=="ndfd" and meta.get("landCoverageFraction",0)<0.8:
+                      problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"insufficient coverage"))
+                  for analysis in ("URMA","RTMA"):
+                      verification=item.get(analysis,{})
+                      if verification.get("absErrorOver20F",0):
+                          print("REVIEW >20F:",row["product"],row["validUtc"],
+                                "lead",row["nominalLead"],source,analysis,verification)
+          assert not problems, "Invalid extrema GRIB metadata: "+str(problems[:15])
+          print("Validated five-day metadata audit:", len(p["audit"]), "records")
+
           PY
       - name: Commit updated historical guidance
         run: |
