@@ -324,11 +324,46 @@ def decode_message_bytes(body: bytes):
     return vals, lats, lons, meta
 
 
-def fetch_idx_message(bucket, key, lines, i):
+def decode_message_bytes_grib2io(body: bytes):
+    """Decode raw NOAA GRIB temperature and scan geography with grib2io.
+
+    A Nov 14 13Z NBM deterministic MinT record yielded Evergreen 47.57 F
+    with ecCodes but 34.97 F using NOAA-MDL grib2io at the *same cell*.
+    Never adjust source values; decode the original GRIB bytes correctly.
+    """
+    import grib2io
+    # ecCodes is retained ONLY for product definition and valid-time metadata.
+    _,_,_,meta=decode_message_bytes(body)
+    fd,path=tempfile.mkstemp(suffix=".grib2")
+    os.close(fd)
+    try:
+        Path(path).write_bytes(body)
+        with grib2io.open(path) as msgs:
+            msg=next(iter(msgs))
+            data=np.ma.asarray(msg.data,dtype=float)
+            vals=np.asarray(np.ma.filled(data,np.nan),dtype=float).ravel()
+            lat,lon=msg.latlons()
+            lats=np.asarray(lat,dtype=float).ravel()
+            lons=np.asarray(lon,dtype=float).ravel()
+    finally:
+        Path(path).unlink(missing_ok=True)
+    if not (len(vals)==len(lats)==len(lons)):
+        raise RuntimeError("GRIB2io data / coordinates mismatch")
+    units=str(meta.get("units") or "")
+    if units=="K" or "kelvin" in units.lower():
+        vals=(vals-273.15)*9/5+32
+    vals=np.where(np.isfinite(vals)&(vals>-120)&(vals<160),vals,np.nan)
+    lons=np.where(lons>180,lons-360,lons)
+    meta["decoder"]="NOAA-MDL grib2io"
+    return vals,lats,lons,meta
+
+
+def fetch_idx_message(bucket, key, lines, i, use_grib2io=False):
     size = s3.head_object(Bucket=bucket, Key=key)["ContentLength"]
     a, b = byte_range(lines, i, size)
     body = s3.get_object(Bucket=bucket, Key=key, Range=f"bytes={a}-{b}")["Body"].read()
-    return decode_message_bytes(body)
+    return (decode_message_bytes_grib2io(body)
+            if use_grib2io else decode_message_bytes(body))
 
 
 def meta_valid(meta):
@@ -421,7 +456,7 @@ def read_nbm_field(init_dt, valid_dt, product):
         lines = idx_lines(NBM_BUCKET, core)
         for i in field_candidates(lines, product):
             try:
-                msg = fetch_idx_message(NBM_BUCKET, core, lines, i)
+                msg = fetch_idx_message(NBM_BUCKET, core, lines, i, use_grib2io=True)
                 valid, why = extrema_metadata_valid(msg[3], product, valid_dt)
                 window=grib_extrema_window(msg[3])
                 expected_start=valid_dt-timedelta(hours=12)
@@ -522,7 +557,7 @@ def read_ndfd_product(product):
     out = {}
     for chunk in iter_grib_messages(raw):
         try:
-            msg = decode_message_bytes(chunk)
+            msg = decode_message_bytes_grib2io(chunk)
             valid = meta_valid(msg[3])
             if valid:
                 out[valid.isoformat().replace("+00:00", "Z")] = msg
