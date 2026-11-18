@@ -88,6 +88,7 @@ def payload(grib, points, source, issued=None):
         "stats": {mode: stats(values, points, mode) for mode in ("land","marine","both")},
         "meta": {
             "source": source,
+            "decoder": str(meta.get("decoder") or "ecCodes"),
             "issuedUtc": iso(issued) if issued else None,
             "validUtc": iso(valid) if valid else None,
             "stepType": str(meta.get("stepType") or ""),
