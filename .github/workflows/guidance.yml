@@ -35,8 +35,11 @@ jobs:
 
       - name: Install GRIB dependencies
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libg2c-dev
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install grib2io --config-settings=cmake.define.GRIB2IO_WITH_IP=OFF
 
       - name: Build MOB guidance dataset
         run: python scripts/build_guidance.py
