@@ -371,14 +371,9 @@ def run():
                     raw=read_nbm_field(init,valid,product)
                     if raw is None:
                         raw={"det":None,"percentiles":{}}
-                    # If the exact 00/12Z-valid extrema GRIB is absent,
-                    # allow the existing NBM field valid one hour later.
-                    # Such a field may be viewed but not exactly verified.
-                    if raw.get("det") is None:
-                        shifted=read_nbm_field(init,valid+timedelta(hours=1),product)
-                        if shifted and shifted.get("det") is not None:
-                            raw["det"]=shifted["det"]
-                            slot["nbm"]["validOffsetHours"]=1
+                    # Do not substitute the +1h core field: the user is
+                    # verifying actual published 00/12Z period extrema.
+                    # An unavailable exactly matched source remains missing.
                     if raw:
                         if raw.get("det") is not None:
                             slot["nbm"]["det"]=payload(raw["det"],points,"NBM core",init)
@@ -421,6 +416,32 @@ def run():
                         slot["ndfd"]["error"]=match_errors(
                             slot["ndfd"],truth,points)
                 slot["verificationSource"] = truth_source
+                # Collect independently inspectable raw point samples.
+                # These are original unsmoothed GRIB samples, NOT bias maps.
+                cities=(("Mobile",30.6954,-88.0399),
+                        ("Pensacola",30.4213,-87.2169),
+                        ("Evergreen",31.4335,-86.9569),
+                        ("Waynesboro",31.6749,-88.6462),
+                        ("Bay Minette",30.8829,-87.7731),
+                        ("Gulf Shores",30.2460,-87.7008))
+                lat_scale=math.cos(math.radians(30.5))
+                audit_points={}
+                for name,lat,lon in cities:
+                    ix=min(range(len(points)),
+                           key=lambda j:(points[j]["lat"]-lat)**2+
+                           ((points[j]["lon"]-lon)*lat_scale)**2)
+                    p=points[ix]
+                    pair={"lat":p["lat"],"lon":p["lon"]}
+                    for field_name,layer in (
+                        ("ndfd",slot["ndfd"]),("det",slot["nbm"]["det"]),
+                        ("urma12",block["analysis"]),("rtma12",block["rtma"]),
+                        ("urma18",block["analysis18"]),("rtma18",block["rtma18"])
+                    ):
+                        pair[field_name]=(layer["values"][ix] if layer else None)
+                    audit_points[name]=pair
+                slot["diagnostics"]={"sampledPoints":audit_points,
+                  "status":"Raw NOAA field samples; no display smoothing",
+                  "comparability":"NDFD/NBM 12h; QMD 18h evaluated separately"}
                 # Persist a five-day scientific audit, including outlier counts.
                 # NEVER clip or suppress extreme errors: expose their provenance.
                 record = {"product":product,"validUtc":key,"nominalLead":lead,
