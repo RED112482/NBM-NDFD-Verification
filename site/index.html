@@ -35,6 +35,7 @@ select{width:100%;max-width:100%}
 .date-strip button{flex:1 0 128px;text-align:center;font-size:11px}.date-strip button small{display:block;font-size:9px;opacity:.75;margin-top:3px}.date-strip button.active{outline:2px solid #50c8f4}
 .lead-picker{display:flex;align-items:center;gap:8px}.lead-picker input{flex:1;accent-color:#64cfff;min-width:65px}.lead-picker strong{font-size:15px;color:#d0f8ff;min-width:45px;text-align:right}
 .scale-legend{margin-top:9px}.scale-header{display:flex;justify-content:space-between;color:#bcd7e8;font-size:10px}.scale-ramp{height:15px;border-radius:4px;overflow:hidden;display:flex;border:1px solid #90acc6;margin-top:4px}.scale-ramp span{flex:1}.scale-ticks{display:flex;justify-content:space-between;font-size:9px;color:#d4e6f0;margin-top:3px;font-variant-numeric:tabular-nums}.scale-ticks span{min-width:0;text-align:center}
+.rankings{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.rankings .rank-item{border:1px solid #345169;background:#091d2b;border-radius:7px;padding:6px 9px;font-size:10px;font-weight:600}.rankings .rank-item strong{font-size:12px;margin-right:4px}
 .score-key{font-size:10px;color:#bddbec;margin:6px 0 0;display:flex;gap:14px;align-items:center}.score-key i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
 
 .legend{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--muted);margin-top:7px}
@@ -89,7 +90,7 @@ select{width:100%;max-width:100%}
  <div class="segment"><button data-chartmode="lead" class="active">Single date · Multiple leads</button><button data-chartmode="daily">Multiple dates · Fixed lead</button></div>
  <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div></div>
  <div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
- <div class="legend"><span>Lines = guidance source · Dot colors = relative verification skill</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = not comparable</span></div>
+ <div class="legend"><span>Line segments and dots = verification rank (hover to identify guidance)</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = not comparable</span></div><div id="rankings" class="rankings"></div>
 </section>
 </div>
 <div class="below">
@@ -225,8 +226,8 @@ function drawCities(g,V,points,vals,w,h){
 // Cache the raster so map panning/zooming does not resample the source on every frame.
 let rasterCache={key:null,canvas:null,n:0};
 function smoothRaster(points,vals,spacing,scope,error){
- const key=JSON.stringify([vals,spacing,scope,error]);
- if(key===rasterCache.key)return rasterCache;
+ const key=vals;
+ if(key===rasterCache.key&&rasterCache.scope===scope&&rasterCache.error===error&&rasterCache.spacing===spacing)return rasterCache;
  let west=Infinity,east=-Infinity,south=Infinity,north=-Infinity;
  for(const p of points){west=Math.min(west,p.lon);east=Math.max(east,p.lon);south=Math.min(south,p.lat);north=Math.max(north,p.lat)}
  const cols=Math.round((east-west)/spacing)+1,rows=Math.round((north-south)/spacing)+1;
@@ -245,7 +246,7 @@ function smoothRaster(points,vals,spacing,scope,error){
   bytes[k]=rgbn[0];bytes[k+1]=rgbn[1];bytes[k+2]=rgbn[2];bytes[k+3]=255;n++;
  }
  ctx.putImageData(img,0,0);
- rasterCache={key,canvas,n,west,east,south,north,spacing};
+ rasterCache={key,scope,error,canvas,n,west,east,south,north,spacing};
  return rasterCache;
 }
 let mapRender=null;
@@ -315,6 +316,7 @@ function graphLine(g,arr,project,color){
 }
 let graphHits=[];
 const srcTitle=src=>src==='ndfd'?'NDFD':src==='det'?'NBM deterministic':'NBM P'+src;
+const rankColor=rank=>rank===null?'#71899b':rank<=1/3?'#2bdf79':rank<=2/3?'#ffdb4b':'#ff515c';
 function renderGraph(){
  const {g,w,h}=prepareCanvas($('graphCanvas'));g.fillStyle='#071723';g.fillRect(0,0,w,h);
  graphHits=[];const days=currentDays();let labels=[],series=[],dates=[];
@@ -323,22 +325,35 @@ function renderGraph(){
   if(S.chartmode==='lead'){
    const day=currentRecord(),leads=[60,48,36,24,12];
    dates=leads.map(()=>S.date);labels=leads.map(n=>'−'+n+'h');
-   for(const src of sources)series.push({src,color:C[src],
+   for(const src of sources)series.push({src,
     values:leads.map(n=>metricFor(layerFor(day,n,src),S.metric)),
     skill:leads.map(n=>layerFor(day,n,src)?.error?.stats?.[S.scope]?.mae??null)});
   }else{
    const keys=Object.keys(days).sort();dates=keys;labels=keys.map(x=>x.slice(5,10));
-   for(const src of sources)series.push({src,color:C[src],
+   for(const src of sources)series.push({src,
     values:keys.map(k=>metricFor(layerFor(days[k],S.lead,src),S.metric)),
     skill:keys.map(k=>layerFor(days[k],S.lead,src)?.error?.stats?.[S.scope]?.mae??null)});
   }
  }else{
   const f=currentForward();labels=S.current?.cycles?.map(x=>x.slice(5,16).replace('T',' '))||[];dates=labels.map(()=>S.date);
-  series=[{src:'det',color:C.det,values:(S.current?.cycles||[]).map(c=>metricFor(f?.nbm?.[c]?.det,S.metric)),skill:[]},
-    {src:'ndfd',color:C.ndfd,values:labels.map(()=>metricFor(f?.ndfd,S.metric)),skill:[]}];
+  series=[{src:'det',values:(S.current?.cycles||[]).map(c=>metricFor(f?.nbm?.[c]?.det,S.metric)),skill:[]},
+    {src:'ndfd',values:labels.map(()=>metricFor(f?.ndfd,S.metric)),skill:[]}];
+ }
+ // Rank each valid date / forecast lead independently using comparable MAE.
+ // A source without matched verification is unranked; no false green is awarded.
+ for(let i=0;i<labels.length;i++){
+  const ordered=series.map(row=>({row,mae:row.skill[i]}))
+   .filter(item=>finite(item.mae)).sort((a,b)=>a.mae-b.mae);
+  for(const row of series){row.rank??=[];row.rank[i]=null;row.place??=[];row.place[i]=null}
+  if(ordered.length<2)continue;
+  for(let j=0;j<ordered.length;j++){
+   ordered[j].row.rank[i]=ordered.length===1?0:j/(ordered.length-1);
+   ordered[j].row.place[i]=j+1;
+  }
  }
  const all=series.flatMap(row=>row.values.filter(finite));
  const pad={l:57,r:22,t:48,b:56},pw=Math.max(5,w-pad.l-pad.r),ph=Math.max(5,h-pad.t-pad.b);
+ const rankBox=$('rankings');rankBox.innerHTML='';
  if(!all.length){g.fillStyle='#b8d8ec';g.font='13px Poppins';g.fillText('No compatible data for this graph metric or period',20,70);return}
  let min=Math.min(...all),max=Math.max(...all),span=Math.max(3,max-min),lo=min-span*.17,hi=max+span*.17;
  if(S.metric==='mae')lo=Math.min(0,lo);
@@ -347,26 +362,39 @@ function renderGraph(){
  for(let i=0;i<=5;i++){const v=lo+(hi-lo)*i/5,y=project(0,v)[1];g.beginPath();g.moveTo(pad.l,y);g.lineTo(w-pad.r,y);g.stroke();g.fillText(v.toFixed(1)+'°',8,y+4)}
  for(let i=0;i<labels.length;i++){const x=project(i,lo)[0];g.fillText(labels[i],Math.max(0,x-16),h-28)}
  let count=0;
- for(const row of series){if(!row.values.some(finite))continue;graphLine(g,row.values,project,row.color);count++}
- // Retain source-identifying line color, and encode *relative verified MAE* by marker color.
- for(const row of series)for(let i=0;i<row.values.length;i++){
-  const val=row.values[i];if(!finite(val))continue;
-  const [x,y]=project(i,val),scores=series.map(q=>q.skill[i]).filter(finite),mae=row.skill[i];
-  let tier='Not verified',col='#a6b7c7';
-  if(finite(mae)&&scores.length>=2){
-   const best=Math.min(...scores),worst=Math.max(...scores),relative=worst>best?(mae-best)/(worst-best):0;
-   tier=relative<=1/3?'Best tier':relative<=2/3?'Middle tier':'Worst tier';
-   col=relative<=1/3?'#36dc7a':relative<=2/3?'#f4d94c':'#ff6363';
+ for(const row of series){
+  if(!row.values.some(finite))continue;count++;
+  for(let i=1;i<row.values.length;i++){
+   const v0=row.values[i-1],v1=row.values[i];if(!finite(v0)||!finite(v1))continue;
+   const [x0,y0]=project(i-1,v0),[x1,y1]=project(i,v1);
+   g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);
+   g.strokeStyle=rankColor(row.rank[i]);g.lineWidth=3.1;g.stroke();
   }
-  g.beginPath();g.arc(x,y,5,0,Math.PI*2);g.fillStyle=col;g.fill();g.strokeStyle='#071723';g.lineWidth=1;g.stroke();
-  graphHits.push({x,y,src:row.src,date:dates[i],label:labels[i],value:val,mae,tier,metric:S.metric,
-    lead:S.chartmode==='daily'?S.lead:Number(labels[i]?.replace(/[^0-9]/g,''))});
+  for(let i=0;i<row.values.length;i++){
+   const val=row.values[i];if(!finite(val))continue;
+   const [x,y]=project(i,val),mae=row.skill[i],place=row.place[i];
+   const col=rankColor(row.rank[i]);
+   g.beginPath();g.arc(x,y,5,0,Math.PI*2);g.fillStyle=col;g.fill();
+   g.strokeStyle='#071723';g.lineWidth=1;g.stroke();
+   graphHits.push({x,y,src:row.src,date:dates[i],label:labels[i],value:val,mae,
+     tier:place?'Rank #'+place+' / '+series.filter(q=>finite(q.skill[i])).length:'Not verified',
+     metric:S.metric,lead:S.chartmode==='daily'?S.lead:Number(labels[i]?.replace(/[^0-9]/g,''))});
+  }
  }
- g.font='10px Poppins';let x=pad.l,y=17;
- for(const row of series){if(!row.values.some(finite))continue;const label=row.src==='ndfd'?'NDFD':row.src==='det'?'NBM Det':'P'+row.src;
-  g.fillStyle=row.color;g.fillRect(x,y-8,11,4);g.fillStyle='#d9eafa';g.fillText(label,x+15,y-2);
-  x+=label.length*7+32;if(x>w-80){x=pad.l;y+=15}
- }
+ // Ranking strip follows the selected lead in multi-lead mode or selected
+ // valid date in the fixed-lead comparison, using exact same MAE ranks.
+ const selectedIndex=S.chartmode==='lead'?[60,48,36,24,12].indexOf(S.lead):dates.indexOf(S.date);
+ const ix=selectedIndex>=0?selectedIndex:labels.length-1;
+ const ranked=series.filter(row=>finite(row.skill[ix])).sort((a,b)=>a.skill[ix]-b.skill[ix]);
+ if(ranked.length>=2){
+  for(const row of ranked){
+   const div=document.createElement('div');div.className='rank-item';
+   div.style.borderColor=rankColor(row.rank[ix]);
+   div.innerHTML='<strong style="color:'+rankColor(row.rank[ix])+'">#'+row.place[ix]+'</strong>'+
+    srcTitle(row.src)+' · '+row.skill[ix].toFixed(1)+'°F MAE';
+   rankBox.append(div);
+  }
+ }else rankBox.textContent='Rankings unavailable: need at least two forecasts verified against matching analysis.';
  $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
  $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series · hover markers';
  $('graphTooltip').style.display='none';
