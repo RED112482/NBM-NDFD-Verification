@@ -101,7 +101,7 @@ select{width:100%;max-width:100%}
  <div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
  <div class="scale-legend"><div class="scale-header"><b id="scaleTitle">Temperature · °F</b><span id="scaleCaption">20–110°F</span></div><div id="scaleRamp" class="scale-ramp"></div><div id="scaleTicks" class="scale-ticks"></div></div>
  <details class="spot-audit"><summary>Inspect raw NDFD/NBM grids · 6 sampled locations</summary>
- <div class="spot-explain">Unsmoothed forecast grid values at nearest analysis nodes. These are not station observations. The comparison uses the selected 12-hour URMA/RTMA analysis.</div>
+ <div class="spot-explain">Unsmoothed values interpolated from native GRIB grids onto common map sample points near each city—not station observations. All deterministic comparisons use the same 12-hour URMA/RTMA window.</div>
  <div class="spot-table-wrap"><table id="rawAuditTable"><thead><tr><th>Location</th><th>NDFD</th><th>NBM Det</th><th>Analysis</th><th>NDFD Δ</th><th>NBM Δ</th></tr></thead><tbody></tbody></table></div></details>
 </section>
 <section class="panel visual">
