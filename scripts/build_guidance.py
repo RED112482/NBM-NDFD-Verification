@@ -416,16 +416,29 @@ def read_nbm_field(init_dt, valid_dt, product):
 
 
 def iter_grib_messages(raw: bytes):
+    """Read GRIB2 Section 0's encoded message length, not the first
+    occurrence of 7777 (which may appear within the binary data)."""
     pos = 0
     while True:
-        a = raw.find(b"GRIB", pos)
-        if a < 0:
+        start = raw.find(b"GRIB", pos)
+        if start < 0:
             return
-        z = raw.find(b"7777", a)
-        if z < 0:
+        if start + 16 > len(raw):
             return
-        yield raw[a : z + 4]
-        pos = z + 4
+        edition = raw[start + 7]
+        if edition != 2:
+            pos = start + 4
+            continue
+        length = int.from_bytes(raw[start + 8:start + 16], "big")
+        if length < 20 or start + length > len(raw):
+            pos = start + 4
+            continue
+        chunk = raw[start:start + length]
+        if chunk[-4:] != b"7777":
+            pos = start + 4
+            continue
+        yield chunk
+        pos = start + length
 
 
 def read_ndfd_product(product):
