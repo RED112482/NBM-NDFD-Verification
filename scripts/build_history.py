@@ -47,7 +47,7 @@ def iso(dt):
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def grid_values(grib, points):
+def grid_values(grib, points, max_nearest_distance=None):
     vals, lats, lons, meta = grib
     yy = np.array([p["lat"] for p in points], dtype=float)
     xx = np.array([p["lon"] for p in points], dtype=float)
@@ -66,16 +66,20 @@ def grid_values(grib, points):
     # assigned a temperature even when the nearest GRIB point was remote;
     # consequently the 80% MOB coverage test could always pass.
     # 0.065 latitude-equivalent degrees ~ 7.2 km, > native 2.5km cell.
-    near=distances[:,0] <= 0.065
     weights = 1.0 / np.maximum(distances, 1e-9) ** 2
     weights /= weights.sum(axis=1, keepdims=True)
     chosen = np.sum(np.asarray(vals[mask][indices], dtype=float) * weights, axis=1)
-    chosen[~near] = np.nan
+    if max_nearest_distance is not None:
+        chosen[distances[:,0] > max_nearest_distance] = np.nan
     return [round(float(v), 1) if np.isfinite(v) else None for v in chosen]
 
 
 def payload(grib, points, source, issued=None):
-    values = grid_values(grib, points)
+    # Only the NDFD geographic coverage test needs strict nearest-node
+    # bounds; preserve previously working URMA/RTMA and QMD sampling.
+    strict = source.startswith("NDFD WMO")
+    values = grid_values(grib, points,
+                         max_nearest_distance=0.065 if strict else None)
     meta = grib[3]
     valid = meta_valid(meta)
     return {
