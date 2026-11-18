@@ -202,23 +202,30 @@ def decode_grib_file(raw, wanted_dt, namehint):
 
 
 def ndfd_grib_before(reference, valid, product, points):
-    # Never use an issuance newer than the requested reference time.
+    """Require a genuinely covering MOB sector; a small neighboring sector
+    must never be treated as the full official NDFD forecast grid."""
+    land_count=sum(bool(p["land"]) for p in points)
+    min_coverage=max(1,math.ceil(.80*land_count))
+    best=None
     for issued,key in ndfd_keys_before(reference,product):
         try:
             raw=s3.get_object(Bucket=NDFD_BUCKET,Key=key)["Body"].read()
             matches=decode_grib_file(raw,valid,"tmin" if product=="mint" else "tmax")
-            if not matches: continue
-            # Multiple sectors may share validity; choose the one with MOB coverage.
-            choices=[]
             for grib in matches:
                 content=payload(grib,points,f"NDFD WMO archive: {key}",issued)
-                n=content["stats"]["land"]["n"] if content["stats"]["land"] else 0
-                choices.append((n,content))
-            if choices:
-                best=max(choices,key=lambda pair:pair[0])
-                if best[0]>0:return best[1]
+                local=content["stats"].get("land")
+                n=local["n"] if local else 0
+                if n < min_coverage:
+                    continue
+                if best is None or (issued,n)>(best[0],best[1]):
+                    best=(issued,n,content)
         except Exception as exc:
             print("NDFD warning",product,valid,repr(exc),flush=True)
+    if best:
+        best[2]["meta"]["landCoverageFraction"]=round(best[1]/land_count,3)
+        return best[2]
+    print("NDFD rejected: no 12h field covering 80% MOB land",
+          product,iso(valid),iso(reference),flush=True)
     return None
 
 
