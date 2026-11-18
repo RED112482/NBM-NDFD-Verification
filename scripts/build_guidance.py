@@ -152,7 +152,7 @@ def fetch_boundaries():
     outlines = {}
     for name, layer_id, where in (
         ("counties", 2, "cwa='MOB'"),
-        ("states", 3, "state IN ('AL','FL','MS')"),
+        ("states", 3, "state IN ('AL','FL','MS','LA','GA')"),
         ("cwa", 1, "cwa='MOB'"),
     ):
         try:
@@ -180,7 +180,7 @@ def fetch_boundaries():
                 # The state boundaries must NOT be polygon-clipped to a
                 # rectangular map viewport: that operation manufactures
                 # straight rectangle sides which show as a box around MOB.
-                # Keep real AL/FL/MS geometry and simplify it *before*
+                # Keep real surrounding-state geometry and simplify it *before*
                 # browser canvas clipping (which happens naturally).
                 # Other layers stay clipped for speed.
                 if collection is outlines["states"]:
