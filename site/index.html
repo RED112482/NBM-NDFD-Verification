@@ -90,7 +90,7 @@ select{width:100%;max-width:100%}
  <div class="segment"><button data-chartmode="lead" class="active">Single date · Multiple leads</button><button data-chartmode="daily">Multiple dates · Fixed lead</button></div>
  <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div></div>
  <div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
- <div class="legend"><span>Line segments and dots = verification rank (hover to identify guidance)</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = not comparable</span></div><div id="rankings" class="rankings"></div>
+ <div class="legend"><span>Line segments and dots = continuous performance colors (hover for guidance)</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = insufficient analysis</span></div><div id="rankings" class="rankings"></div>
 </section>
 </div>
 <div class="below">
@@ -348,7 +348,12 @@ function graphLine(g,arr,project,color){
 }
 let graphHits=[];
 const srcTitle=src=>src==='ndfd'?'NDFD':src==='det'?'NBM deterministic':'NBM P'+src;
-const rankColor=rank=>rank===null?'#71899b':rank<=1/3?'#2bdf79':rank<=2/3?'#ffdb4b':'#ff515c';
+const rankColor=rank=>{
+ if(rank===null)return '#71899b';
+ const t=Math.max(0,Math.min(1,rank)),lo=t<=.5?[40,220,106]:[255,216,40],
+ hi=t<=.5?[255,216,40]:[238,53,70],u=t<=.5?t*2:(t-.5)*2;
+ return 'rgb('+lo.map((v,i)=>Math.round(v+(hi[i]-v)*u)).join(',')+')';
+};
 function renderGraph(){
  const {g,w,h}=prepareCanvas($('graphCanvas'));g.fillStyle='#071723';g.fillRect(0,0,w,h);
  graphHits=[];const days=currentDays();let labels=[],series=[],dates=[];
@@ -359,27 +364,40 @@ function renderGraph(){
    dates=leads.map(()=>S.date);labels=leads.map(n=>'−'+n+'h');
    for(const src of sources)series.push({src,
     values:leads.map(n=>metricFor(layerFor(day,n,src),S.metric)),
-    skill:leads.map(n=>layerFor(day,n,src)?.error?.stats?.[S.scope]?.mae??null)});
+    skill:leads.map(n=>{
+ const layer=layerFor(day,n,src),mae=layer?.error?.stats?.[S.scope]?.mae;
+ if(S.metric!=='mean')return mae??null;
+ const actual=(day?.analysis||day?.rtma)?.stats?.[S.scope]?.mean,mean=layer?.stats?.[S.scope]?.mean;
+ return finite(mean)&&finite(actual)?Math.abs(mean-actual):null;
+ })});
   }else{
    const keys=Object.keys(days).sort();dates=keys;labels=keys.map(x=>x.slice(5,10));
    for(const src of sources)series.push({src,
     values:keys.map(k=>metricFor(layerFor(days[k],S.lead,src),S.metric)),
-    skill:keys.map(k=>layerFor(days[k],S.lead,src)?.error?.stats?.[S.scope]?.mae??null)});
+    skill:keys.map(k=>{
+ const day=days[k],layer=layerFor(day,S.lead,src),mae=layer?.error?.stats?.[S.scope]?.mae;
+ if(S.metric!=='mean')return mae??null;
+ const actual=(day?.analysis||day?.rtma)?.stats?.[S.scope]?.mean,mean=layer?.stats?.[S.scope]?.mean;
+ return finite(mean)&&finite(actual)?Math.abs(mean-actual):null;
+ })});
   }
  }else{
   const f=currentForward();labels=S.current?.cycles?.map(x=>x.slice(5,16).replace('T',' '))||[];dates=labels.map(()=>S.date);
   series=[{src:'det',values:(S.current?.cycles||[]).map(c=>metricFor(f?.nbm?.[c]?.det,S.metric)),skill:[]},
     {src:'ndfd',values:labels.map(()=>metricFor(f?.ndfd,S.metric)),skill:[]}];
  }
- // Rank each valid date / forecast lead independently using comparable MAE.
- // A source without matched verification is unranked; no false green is awarded.
+ // Rank every available curve at each valid date and lead.
+ // Mean graphs use area-mean proximity to analysis to show all guidance,
+ // including 18h percentiles; this is exploratory, NOT matched-period grid MAE.
+ // MAE/bias plots still require verified matched periods.
  for(let i=0;i<labels.length;i++){
   const ordered=series.map(row=>({row,mae:row.skill[i]}))
    .filter(item=>finite(item.mae)).sort((a,b)=>a.mae-b.mae);
   for(const row of series){row.rank??=[];row.rank[i]=null;row.place??=[];row.place[i]=null}
   if(ordered.length<2)continue;
   for(let j=0;j<ordered.length;j++){
-   ordered[j].row.rank[i]=ordered.length===1?0:j/(ordered.length-1);
+   const best=ordered[0].mae,worst=ordered[ordered.length-1].mae;
+   ordered[j].row.rank[i]=worst>best?(ordered[j].mae-best)/(worst-best):.5;
    ordered[j].row.place[i]=j+1;
   }
  }
@@ -423,12 +441,12 @@ function renderGraph(){
    const div=document.createElement('div');div.className='rank-item';
    div.style.borderColor=rankColor(row.rank[ix]);
    div.innerHTML='<strong style="color:'+rankColor(row.rank[ix])+'">#'+row.place[ix]+'</strong>'+
-    srcTitle(row.src)+' · '+row.skill[ix].toFixed(1)+'°F MAE';
+    srcTitle(row.src)+' · '+row.skill[ix].toFixed(1)+'°F '+(S.metric==='mean'?'mean difference':'MAE');
    rankBox.append(div);
   }
  }else rankBox.textContent='Rankings unavailable: need at least two forecasts verified against matching analysis.';
  $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
- $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series · hover markers';
+ $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series · '+(S.metric==='mean'?'Ranking by difference from analysis area mean (not grid MAE)':'Ranking by verified MAE')+' · hover markers';
  $('graphTooltip').style.display='none';
 }
 function populateStats(){
@@ -503,7 +521,7 @@ gc.addEventListener('pointermove',e=>{
  const tip=$('graphTooltip'),rect=gc.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;
  const h=graphHits.reduce((best,q)=>{const d=(q.x-x)**2+(q.y-y)**2;return d<(best?.d??Infinity)?{q,d}:best},null);
  if(!h||h.d>225){tip.style.display='none';return}
- const q=h.q,score=finite(q.mae)?' · MAE '+q.mae.toFixed(1)+'°F':' · No verifying score';
+ const q=h.q,score=finite(q.mae)?' · '+(q.metric==='mean'?'Mean difference ':'MAE ')+q.mae.toFixed(1)+'°F':' · No analysis comparison';
  tip.textContent=srcTitle(q.src)+' | Valid '+(q.date?UTC(q.date):'—')+
  ' | −'+q.lead+'h | '+q.metric.toUpperCase()+' '+q.value.toFixed(1)+'°F | '+q.tier+score;
  tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-275,x+12))+'px';
