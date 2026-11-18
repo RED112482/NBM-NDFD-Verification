@@ -83,5 +83,38 @@ jobs:
                             "DELTA_F",round(x["F"]-y["F"],2),flush=True)
               if not original or not alternate:
                   raise SystemExit("Could not decode both sources")
-              print("COMPARISON COMPLETE - no production files touched")
+              print("NDFD COMPARISON COMPLETE - no production files touched")
+              # Independent NBM deterministic comparison for the same
+              # November 15 12Z valid MinT from the 13Z November 14 run.
+              nbmkey="blend.20261114/13/core/blend.t13z.core.f023.co.grib2"
+              nbms3=boto3.client("s3",region_name="us-east-1",config=Config(signature_version=UNSIGNED))
+              idx=nbms3.get_object(Bucket="noaa-nbm-grib2-pds",Key=nbmkey+".idx")["Body"].read().decode().splitlines()
+              choices=[i for i,row in enumerate(idx) if ":TMIN:" in row.upper() and "MIN FCST" in row.upper()]
+              print("NBM CORE CANDIDATES",[(i,idx[i]) for i in choices[:5]],flush=True)
+              if not choices:raise RuntimeError("No deterministic MinT record")
+              i=choices[0]
+              start=int(idx[i].split(":")[1])
+              end=int(idx[i+1].split(":")[1])-1 if i+1<len(idx) else nbms3.head_object(
+                 Bucket="noaa-nbm-grib2-pds",Key=nbmkey)["ContentLength"]-1
+              chunk=nbms3.get_object(Bucket="noaa-nbm-grib2-pds",Key=nbmkey,
+                       Range=f"bytes={start}-{end}")["Body"].read()
+              nbmfile=pathlib.Path(d)/"nbm_det.grib2";nbmfile.write_bytes(chunk)
+              with open(nbmfile,"rb") as f:
+                  g=codes_grib_new_from_file(f)
+                  if g is None:raise RuntimeError("Cannot read NBM selected message")
+                  try:
+                      valid=(str(codes_get(g,"validityDate")),str(codes_get(g,"validityTime")))
+                      ec=sample(codes_get_array(g,"values"),codes_get_array(g,"latitudes"),
+                                codes_get_array(g,"longitudes"))
+                  finally:codes_release(g)
+              with grib2io.open(str(nbmfile)) as f:
+                  msg=next(iter(f))
+                  la,lo=msg.latlons()
+                  alt=sample(msg.data,la,lo)
+              print("NBM CORE VALID",valid,"SOURCE",nbmkey,flush=True)
+              for city in cities:
+                  x=ec[city];y=alt[city]
+                  print("NBM",city,"eccodes",x,"grib2io",y,
+                        "DELTA_F",round(x["F"]-y["F"],2),flush=True)
+              print("BOTH DATA SOURCES CHECKED INDEPENDENTLY")
           PY
