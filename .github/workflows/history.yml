@@ -57,6 +57,7 @@ jobs:
                 sum(bool(x["nbm"]["det"]) for entries in p["days"].values()
                     for day in entries.values() for x in day["leads"].values()))
           assert len(p.get("audit", [])) >= 50, "Expected 5 days x 5 leads x 2 elements"
+          from datetime import datetime, timedelta
           problems=[]
           for row in p["audit"]:
               for source in ("ndfd", "nbmDet"):
@@ -69,6 +70,13 @@ jobs:
                       problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"not 12 hours"))
                   if source=="ndfd" and meta.get("landCoverageFraction",0)<0.8:
                       problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"insufficient coverage"))
+                  if meta.get("actualWindowEndUtc")!=row["validUtc"]:
+                      problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"end mismatch"))
+                  actual_start=datetime.fromisoformat(row["validUtc"].replace("Z","+00:00"))-timedelta(hours=12)
+                  if meta.get("actualWindowStartUtc")!=actual_start.isoformat().replace("+00:00","Z"):
+                      problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"start mismatch"))
+                  if source=="ndfd" and meta.get("issuedUtc") and meta["issuedUtc"]>row["referenceUtc"]:
+                      problems.append((row["product"],row["validUtc"],row["nominalLead"],source,"issued after cutoff"))
                   for analysis in ("URMA","RTMA"):
                       verification=item.get(analysis,{})
                       if verification.get("absErrorOver20F",0):
