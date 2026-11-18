@@ -597,6 +597,8 @@ function populateStats(){
   slot?'NBM initialization '+UTC(slot.nbmCycleUtc)+' (actual lead '+slot.actualLeadHours+'h)':'',
   m.issuedUtc?'Guidance initialized '+UTC(m.issuedUtc):'',
   m.validUtc?'Forecast valid '+UTC(m.validUtc):'',
+  m.actualWindowStartUtc&&m.actualWindowEndUtc?'Actual GRIB minimum/maximum interval '+UTC(m.actualWindowStartUtc)+' to '+UTC(m.actualWindowEndUtc):'',
+
   m.stepRange?'Forecast interval '+m.stepRange:'',
   pair?'Period-matched '+pair.periodHours+'h verification':'VERIFICATION UNAVAILABLE: missing or mismatched forecast/analysis periods',
   truth?'Analysis '+(truth.meta?.stepRange||'12h')+' from hourly 2m temperatures':'No available analysis',
@@ -630,7 +632,9 @@ function update(){
   '  |  NDFD reference cutoff: '+utcFmt(reference)+' ('+localFmt(reference)+')'+
   '  |  Actual NDFD issuance: '+(ndfdIssued?utcFmt(new Date(ndfdIssued)):'unavailable')+
   '  |  NBM cycle: '+(slot?.nbmCycleUtc?utcFmt(new Date(slot.nbmCycleUtc)):'unavailable')+
-  '  |  Forecasts were issued before the selected valid period ended.';
+  '  |  12h extrema window: '+(slot?.expectedWindowStartUtc?utcFmt(new Date(slot.expectedWindowStartUtc)):'—')+
+  ' → '+(slot?.expectedWindowEndUtc?utcFmt(new Date(slot.expectedWindowEndUtc)):'—')+
+  '  |  Cutoff selects newest archived NDFD available by that time (not necessarily exactly at cutoff).';
  $('alert').textContent=errors.join('\n');
  populateStats();populateRawAudit();renderMap();renderGraph();
 }
