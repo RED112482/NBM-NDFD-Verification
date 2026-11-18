@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NBM / NDFD Historical Temperature Explorer · R4</title>
+<title>NBM/NDFD Verification Explorer · R5</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
 :root{--bg:#07131e;--panel:#102237;--ink:#e8f6ff;--muted:#9cbcd0;--line:#2a4c66;--a:#caf3ff;--warn:#ffc56b}
@@ -30,6 +30,13 @@ select{width:100%;max-width:100%}
 #mapCanvas:active{cursor:grabbing}
 #mapTooltip{display:none;position:absolute;pointer-events:none;background:#071521ee;border:1px solid #b5e6ff;border-radius:5px;padding:5px 7px;font-size:11px;white-space:nowrap}
 #graphCanvas{cursor:crosshair}
+#graphTooltip{display:none;position:absolute;z-index:10;pointer-events:none;background:#061521f4;color:#f0faff;border:1px solid #74d9ed;border-radius:8px;padding:9px 11px;font:11px Poppins;max-width:270px;box-shadow:0 7px 24px #0008}
+.date-strip{display:flex;gap:7px;overflow-x:auto;margin:-4px 0 12px;padding:8px;background:#102237;border:1px solid var(--line);border-radius:11px}
+.date-strip button{flex:1 0 128px;text-align:center;font-size:11px}.date-strip button small{display:block;font-size:9px;opacity:.75;margin-top:3px}.date-strip button.active{outline:2px solid #50c8f4}
+.lead-picker{display:flex;align-items:center;gap:8px}.lead-picker input{flex:1;accent-color:#64cfff;min-width:65px}.lead-picker strong{font-size:15px;color:#d0f8ff;min-width:45px;text-align:right}
+.scale-legend{margin-top:9px}.scale-header{display:flex;justify-content:space-between;color:#bcd7e8;font-size:10px}.scale-ramp{height:15px;border-radius:4px;overflow:hidden;display:flex;border:1px solid #90acc6;margin-top:4px}.scale-ramp span{flex:1}.scale-ticks{display:flex;justify-content:space-between;font-size:9px;color:#d4e6f0;margin-top:3px;font-variant-numeric:tabular-nums}.scale-ticks span{min-width:0;text-align:center}
+.score-key{font-size:10px;color:#bddbec;margin:6px 0 0;display:flex;gap:14px;align-items:center}.score-key i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+
 .legend{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--muted);margin-top:7px}
 .legend .gradient{width:65%;height:12px;border-radius:5px;background:linear-gradient(90deg,#00ffff 0%,#006aff 11.1%,#001c85 22.2%,#8b9097 33.3%,#ffe149 44.4%,#ff9700 55.5%,#f52525 66.6%,#740026 77.7%,#ff9b9b 88.8%,#fff 100%)}
 .graph-options{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
@@ -48,15 +55,16 @@ select{width:100%;max-width:100%}
 @media(max-width:840px){.controls{grid-template-columns:repeat(2,1fr)}.body,.below{grid-template-columns:1fr}.surface{height:450px}.metrics{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <div class="wrap">
-<header><div><h1>NBM / NDFD Temperature Explorer <span style="font-size:11px;color:#8eddf9">R4</span></h1>
+<header><div><h1>NBM/NDFD Verification Explorer <span style="font-size:11px;color:#8eddf9">R5</span></h1>
 <div class="subtitle">WFO Mobile/Pensacola · Archived forecast cycles · MinT / MaxT · No map API or key</div></div><div id="status">Loading NOAA guidance…</div></header>
 <div class="panel controls">
   <div class="field"><label>Element</label><div class="segment"><button data-prod="mint" class="active">MinT</button><button data-prod="maxt">MaxT</button></div></div>
   <div class="field"><label>Verifying / valid date (UTC)</label><select id="date"></select></div>
-  <div class="field"><label>NDFD snapshot lead</label><select id="lead"><option value="12">-12h</option><option value="24">-24h</option><option value="36">-36h</option><option value="48">-48h</option><option value="60">-60h</option></select></div>
+  <div class="field"><label>NDFD snapshot lead · <span id="leadIssued">—</span></label><div class="lead-picker"><button id="leadBack">−</button><input id="lead" type="range" min="12" max="60" step="12" value="12" aria-label="NDFD snapshot lead hours"><button id="leadNext">+</button><strong id="leadValue">−12h</strong></div></div>
   <div class="field"><label>Geographic sample</label><div class="segment"><button data-scope="land" class="active">Land</button><button data-scope="marine">Marine</button><button data-scope="both">Both</button></div></div>
   <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Error − Analysis</button></div></div>
 </div>
+<div id="dateStrip" class="date-strip" aria-label="Choose valid date"></div>
 <div class="panel sources"><b style="font-size:10px;color:#afdaf1;margin-right:5px">MAP GUIDANCE</b>
 <button data-source="ndfd" class="active">Official NDFD</button>
 <button data-source="det">NBM Deterministic</button>
@@ -73,15 +81,15 @@ select{width:100%;max-width:100%}
  <label><input type="checkbox" id="countyCheck" checked>Counties</label>
  <label><input type="checkbox" id="cwaCheck" checked>MOB CWA</label><label><input type="checkbox" id="cityCheck" checked>City temperatures</label></div></div>
  <div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
- <div class="legend"><span id="coldLabel">20°F</span><div class="gradient"></div><span id="warmLabel">110°F</span></div>
+ <div class="scale-legend"><div class="scale-header"><b id="scaleTitle">Temperature · °F</b><span id="scaleCaption">20–110°F</span></div><div id="scaleRamp" class="scale-ramp"></div><div id="scaleTicks" class="scale-ticks"></div></div>
 </section>
 <section class="panel visual">
  <div class="top"><div><h2 id="graphTitle">Forecast Evolution</h2><div class="meta">All series are matched to the same valid date/time</div></div></div>
  <div class="graph-options">
- <div class="segment"><button data-chartmode="lead" class="active">One night · Leads</button><button data-chartmode="daily">Many nights · Fixed lead</button></div>
+ <div class="segment"><button data-chartmode="lead" class="active">Single date · Multiple leads</button><button data-chartmode="daily">Multiple dates · Fixed lead</button></div>
  <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div></div>
- <div class="surface"><canvas id="graphCanvas"></canvas></div>
- <div class="legend"><span>NBM deterministic • NDFD • P10/P25/P50/P75/P90</span><span id="graphHint">Actual values only</span></div>
+ <div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
+ <div class="legend"><span>Lines = guidance source · Dot colors = relative verification skill</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>Best</span><span><i style="background:#f4d94c"></i>Middle</span><span><i style="background:#ff6363"></i>Worst</span><span>Gray = not comparable</span></div>
 </section>
 </div>
 <div class="below">
@@ -131,10 +139,26 @@ function selDates(){
  el.innerHTML='';
  for(const d of dates){const op=document.createElement('option');op.value=d;op.textContent=UTC(d);el.append(op)}
  const analyzed=dates.find(k=>currentDays()?.[k]?.analysis||currentDays()?.[k]?.rtma);S.date=dates.includes(old)?old:(analyzed||dates[0]||null);el.value=S.date||'';
+ const strip=$('dateStrip');strip.innerHTML='';
+ for(const d of dates){const dt=new Date(d),btn=document.createElement('button');btn.dataset.date=d;
+ btn.innerHTML=dt.toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'})+
+ '<small>Valid '+UTC(d).slice(11,16)+'Z · '+S.product.toUpperCase()+'</small>';
+ btn.addEventListener('click',()=>{S.date=d;el.value=d;update()});strip.append(btn)}
+
+}
+const TEMP_STOPS=[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[60,'#ffe149'],[70,'#ff9700'],[80,'#f52525'],[90,'#740026'],[100,'#ff9b9b'],[110,'#ffffff']];
+const BIAS_STOPS=[[-20,'#000000'],[-10,'#ffffff'],[-5,'#00ffff'],[-2,'#1769ff'],[0,'#000000'],[2,'#ff1717'],[5,'#ee00e9'],[10,'#ffffff'],[20,'#000000']];
+function renderScale(error){
+ const stops=error?BIAS_STOPS:TEMP_STOPS;
+ $('scaleTitle').textContent=error?'Forecast − analysis bias · °F':'Temperature · °F';
+ $('scaleCaption').textContent=error?'Negative too cold · Positive too warm':'20–110°F · 10° steps';
+ const ramp=$('scaleRamp'),ticks=$('scaleTicks');ramp.innerHTML='';ticks.innerHTML='';
+ for(let i=0;i<180;i++){const v=(error?-20:20)+(error?40:90)*(i+.5)/180,el=document.createElement('span');el.style.background=gradient(v,stops);ramp.append(el)}
+ for(let v=error?-20:20;v<=(error?20:110);v+=error?2:10){const el=document.createElement('span');el.textContent=String(v);ticks.append(el)}
 }
 function colors(v,isError){
- if(isError){const stops=[[-20,'#3d6cb8'],[-12,'#6ca8e1'],[-5,'#b6dced'],[0,'#eeeeee'],[5,'#f9cda3'],[12,'#ed8755'],[20,'#bd3845']];return gradient(v,stops)}
- return gradient(v,[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[60,'#ffe149'],[70,'#ff9700'],[80,'#f52525'],[90,'#740026'],[100,'#ff9b9b'],[110,'#ffffff']])
+ if(isError)return gradient(v,BIAS_STOPS)
+ return gradient(v,TEMP_STOPS)
 }
 function gradient(v,stops){if(v<=stops[0][0])return stops[0][1];for(let i=1;i<stops.length;i++)if(v<=stops[i][0]){const [a,ca]=stops[i-1],[b,cb]=stops[i];const t=(v-a)/(b-a);const h=c=>[1,3,5].map(j=>parseInt(c.substring(j,j+2),16));const x=h(ca),y=h(cb);return 'rgb('+x.map((n,j)=>Math.round(n+(y[j]-n)*t)).join(',')+')'}return stops.at(-1)[1]}
 function prepareCanvas(canvas){const rect=canvas.getBoundingClientRect(),ratio=devicePixelRatio||1;const w=Math.max(1,rect.width),h=Math.max(1,rect.height);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);const g=canvas.getContext('2d');g.setTransform(ratio,0,0,ratio,0,0);return {g,w,h}}
@@ -204,8 +228,9 @@ function renderMap(){
  if(!data?.points?.length){g.fillStyle='#bdd8e8';g.fillText('No NOAA grid data available',30,40);return}
  const V=view(data.bounds,w,h),points=data.points,layer=selectedLayer();
  const error=S.mapmode==='error'&&!['analysis','rtma'].includes(S.source);const vals=error?layer?.error?.values:layer?.values;
- const dx=(data.sampleSpacingDegrees||S.current?.sampleSpacingDegrees||.075)*V.cos*V.scale;
- const dy=(data.sampleSpacingDegrees||S.current?.sampleSpacingDegrees||.075)*V.scale;
+ const spacing=data.sampleSpacingDegrees||(points.length>1?Math.abs(points[1].lon-points[0].lon):null)||S.current?.sampleSpacingDegrees||.075;
+ const dx=spacing*V.cos*V.scale;
+ const dy=spacing*V.scale;
  let n=0;
  if(vals?.length===points.length){
   for(let i=0;i<points.length;i++){
@@ -231,9 +256,8 @@ function renderMap(){
  g.fillText('WFO MOB · NOAA gridded forecast',12,h-12);
  mapRender={V,points,vals,canvas,n};
  $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+sourceName();
- $('mapMeta').textContent=(S.date?UTC(S.date):'—')+' · '+S.scope.toUpperCase()+' · '+n+' colored grid cells'+(error?' · Forecast minus analysis':'');
- $('coldLabel').textContent=error?'Cold bias':'Colder';
- $('warmLabel').textContent=error?'Warm bias':'Warmer';
+ $('mapMeta').textContent='VALID '+(S.date?UTC(S.date):'—')+' · '+(['analysis','rtma'].includes(S.source)?'Analysis':'Snapshot −'+S.lead+'h')+' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − analysis':'');
+ renderScale(error);
 }
 function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM Deterministic':S.source==='analysis'?'URMA analysis':S.source==='rtma'?'RTMA analysis':'NBM P'+S.source}
 function metricFor(layer,metric){
@@ -287,7 +311,7 @@ function renderGraph(){
  g.font='10px Poppins';let x=pad.l,y=17;
  for(const row of series){if(!row.values.some(finite))continue;const label=row.src==='ndfd'?'NDFD':row.src==='det'?'NBM Det':'P'+row.src;
  g.fillStyle=row.color;g.fillRect(x,y-8,11,4);g.fillStyle='#d9eafa';g.fillText(label,x+15,y-2);x+=label.length*7+32;if(x>w-80){x=pad.l;y+=15}}
- $('graphTitle').textContent=S.chartmode==='lead'?'One Verifying Night · Forecast Lead Evolution':'Multiple Nights · Fixed Lead (-'+S.lead+'h)';
+ $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
  $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series';
 }
 function populateStats(){
@@ -321,6 +345,9 @@ function update(){
  active('prod',S.product);active('scope',S.scope);active('source',S.source);
  active('chartmode',S.chartmode);active('metric',S.metric);active('mapmode',S.mapmode);
  $('lead').value=String(S.lead);
+ $('leadValue').textContent='−'+S.lead+'h';
+ $('leadIssued').textContent=currentSlot()?.ndfdReferenceUtc?'Snapshot '+UTC(currentSlot().ndfdReferenceUtc).slice(0,16):'selected lead';
+ document.querySelectorAll('#dateStrip [data-date]').forEach(b=>b.classList.toggle('active',b.dataset.date===S.date));
  const layer=selectedLayer(),slot=currentSlot();
  let errors=[];
  if(!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
@@ -339,7 +366,9 @@ evt('[data-chartmode]','chartmode',x=>S.chartmode=x);
 evt('[data-metric]','metric',x=>S.metric=x);
 evt('[data-mapmode]','mapmode',x=>S.mapmode=x);
 $('date').addEventListener('change',e=>{S.date=e.target.value;update()});
-$('lead').addEventListener('change',e=>{S.lead=+e.target.value;update()});
+$('lead').addEventListener('input',e=>{S.lead=+e.target.value;update()});
+$('leadBack').addEventListener('click',()=>{S.lead=Math.max(12,S.lead-12);update()});
+$('leadNext').addEventListener('click',()=>{S.lead=Math.min(60,S.lead+12);update()});
 for(const name of ['stateCheck','countyCheck','cwaCheck','cityCheck'])$(name).addEventListener('change',renderMap);
 let dragging=false,last=null;
 const mc=$('mapCanvas');
