@@ -64,6 +64,11 @@ select{width:100%;max-width:100%}
 .legend .gradient{width:65%;height:12px;border-radius:5px;background:linear-gradient(90deg,#00ffff 0%,#006aff 11.1%,#001c85 22.2%,#8b9097 33.3%,#ffe149 44.4%,#ff9700 55.5%,#f52525 66.6%,#740026 77.7%,#ff9b9b 88.8%,#fff 100%)}
 .graph-options{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
 .graph-options .segment{flex:1}.graph-options button{font-size:10px}
+.analysis-graph-toggles{display:flex;gap:13px;align-items:center;flex-wrap:wrap;width:100%;font-size:10px;color:#d5ebfa}
+.analysis-graph-toggles label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.analysis-graph-toggles input{accent-color:#8ddaf9}
+.ref-swatch{display:inline-block;width:23px;height:0;border-top:3px dashed}
+.ref-12{border-color:#ffffff}.ref-18{border-color:#85ebff}
 .below{display:grid;grid-template-columns:1fr 1.3fr;gap:12px;margin-top:12px}
 .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
 .metric{background:#071a2b;border:1px solid #284961;border-radius:8px;padding:8px}
@@ -120,11 +125,13 @@ select{width:100%;max-width:100%}
  <div class="top"><div><h2 id="graphTitle">Forecast Evolution</h2><div class="meta">All series are matched to the same valid date/time</div></div></div>
  <div class="graph-options">
  <div class="segment"><button data-chartmode="lead" class="active">Single date · Multiple leads</button><button data-chartmode="daily">Multiple dates · Fixed lead</button></div>
- <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div></div>
+ <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div>
+<div class="analysis-graph-toggles"><label title="Toggle the white dashed 12-hour URMA/RTMA verifying analysis mean"><input id="showAnalysis12" type="checkbox" checked><span class="ref-swatch ref-12"></span>12h analysis</label><label title="Toggle the cyan dashed 18-hour URMA/RTMA verifying analysis mean"><input id="showAnalysis18" type="checkbox" checked><span class="ref-swatch ref-18"></span>18h analysis</label></div>
+</div>
  <div class="map-and-ranks"><div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
 <aside class="ranking-sidebar"><b id="rankingTitle">Forecast performance ranking</b><div id="rankings" class="rankings"></div>
 <div class="rank-warning" id="rankWarning">Comparisons require matching analysis data.</div></aside></div>
- <div class="legend"><span><b style="color:#fff">White dashed = 12h analysis</b> · <b style="color:#85ebff">Cyan dashed = 18h analysis</b> · Line colors = MAE rank · NDFD glows</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>0°F MAE</span><span><i style="background:#f4d94c"></i>5°F MAE</span><span><i style="background:#ff6363"></i>10°F+ MAE</span><span>Gray = unverified</span></div></section>
+ <div class="legend"><span><b style="color:#fff">White dashed = 12h analysis</b> · <b style="color:#85ebff">Cyan dashed = 18h analysis</b> · Toggle each above · Line colors = MAE performance · NDFD glows</span><span id="graphHint">Actual values only</span></div><div class="score-key"><span><i style="background:#36dc7a"></i>0°F MAE</span><span><i style="background:#f4d94c"></i>5°F MAE</span><span><i style="background:#ff6363"></i>10°F+ MAE</span><span>Gray = unverified</span></div></section>
 </div>
 <div class="below">
  <div class="panel"><h2>Selected Layer • Spatial Statistics</h2>
@@ -145,7 +152,7 @@ select{width:100%;max-width:100%}
 </div>
 <script>
 'use strict';
-const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',analysisSource:'analysis',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',zoom:1,center:null};
+const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',analysisSource:'analysis',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',showAnalysis12:true,showAnalysis18:true,zoom:1,center:null};
 const C={ndfd:'#ff5359',det:'#62caff','10':'#537fff','25':'#8f8aff','50':'#b5a3fb','75':'#ffb869','90':'#ffd45f'};
 const $=id=>document.getElementById(id),finite=x=>Number.isFinite(x);
 const UTC=s=>new Date(s).toISOString().slice(0,16).replace('T',' ')+'Z';
@@ -462,45 +469,39 @@ function renderGraph(){
  // A line uses ONE color throughout; the sidebar uses that exact same rank.
  const eligible=series.map(row=>{
   const available=row.maes.filter(finite);
-  return {row,mae:available.length?available.reduce((a,b)=>a+b,0)/available.length:null,count:available.length,
-    period:isQmd(row.src)?18:12};
- }).filter(x=>finite(x.mae));
+  return {row,mae:available.length?available.reduce((a,b)=>a+b,0)/available.length:null,
+    count:available.length,period:isQmd(row.src)?18:12};
+ }).filter(x=>finite(x.mae)).sort((a,b)=>a.mae-b.mae);
+ // A single ranked leaderboard, including NDFD, deterministic NBM and
+ // all five percentiles. Each source keeps its own verified 12h/18h window.
+ // Rankings are comparative/exploratory across different window lengths;
+ // no cross-period error calculation or data changes are made.
  for(const row of series){row.rank=null;row.place=null;row.color='#8493a5';row.score=null}
- for(const period of [12,18]){
-  const cohort=eligible.filter(x=>x.period===period).sort((a,b)=>a.mae-b.mae);
-  // Relative rank order remains within the valid 12h/18h verification cohort.
-  for(let i=0;i<cohort.length;i++){
-   const e=cohort[i],frac=Math.max(0,Math.min(1,e.mae/10));
-   // Absolute skill scale: 0F MAE green, 5F yellow, >=10F red.
-   // Never paint a high-MAE forecast green just because a competitor is worse.
-   e.row.rank=frac;e.row.place=i+1;e.row.color=rankColor(frac);e.row.score=e.mae;
-   e.row.count=e.count;e.row.period=period;e.row.cohortCount=cohort.length;
-  }
+ for(let i=0;i<eligible.length;i++){
+  const e=eligible[i],frac=Math.max(0,Math.min(1,e.mae/10));
+  // Preserve the established absolute MAE color scale (0F green,
+  // 5F yellow, >=10F red) irrespective of relative rank.
+  e.row.rank=frac;e.row.place=i+1;e.row.color=rankColor(frac);e.row.score=e.mae;
+  e.row.count=e.count;e.row.period=e.period;e.row.cohortCount=eligible.length;
  }
- const rankBox=$('rankings');rankBox.innerHTML='';
- $('rankingTitle').textContent='Forecast ranking · '+(S.analysisSource==='analysis'?'URMA':'RTMA');
+ const rankBox=$('rankings');rankBox.replaceChildren();
+ $('rankingTitle').textContent='Overall guidance ranking · '+(S.analysisSource==='analysis'?'URMA':'RTMA');
  const selectedDay=days?.[S.date];
  const truth12=analysisFor(selectedDay,'ndfd')?.stats?.[S.scope]?.mean;
  const truth18=analysisFor(selectedDay,'50')?.stats?.[S.scope]?.mean;
- $('rankWarning').textContent='Absolute color scale: 0°F MAE green, 5°F yellow, ≥10°F red. Selected analysis mean: 12h '+(finite(truth12)?truth12.toFixed(1)+'°F':'unavailable')+
-  ' · 18h '+(finite(truth18)?truth18.toFixed(1)+'°F':'unavailable')+
-  '. NDFD glows white; rankings are separate by forecast verification window.';
+ $('rankWarning').textContent='All 7 sources ranked together by mean grid MAE. NDFD / NBM deterministic: 12h; percentiles: 18h. Cross-window ranks are exploratory, not equivalent-period skill comparisons. Color: 0°F green, 5°F yellow, 10°F+ red. Selected '+(S.analysisSource==='analysis'?'URMA':'RTMA')+' means: 12h '+
+ (finite(truth12)?truth12.toFixed(1)+'°F':'n/a')+' · 18h '+
+ (finite(truth18)?truth18.toFixed(1)+'°F':'n/a')+'.';
  if(eligible.length){
-  for(const period of [12,18]){
-   const rows=series.filter(row=>row.place!==null&&row.period===period).sort((a,b)=>a.place-b.place);
-   if(!rows.length)continue;
-   const heading=document.createElement('div');heading.className='ranking-group-header';
-   heading.textContent=period===12?'12h NDFD / NBM deterministic':'18h NBM QMD percentiles';
-   rankBox.append(heading);
-   for(const row of rows){
-    const div=document.createElement('div');div.className='rank-item';div.style.borderColor=row.color;
-    const number=document.createElement('strong');number.textContent='#'+row.place;number.style.color=row.color;
-    const label=document.createElement('span');label.textContent=srcTitle(row.src);
-    const val=document.createElement('div');val.textContent=row.score.toFixed(2)+'°F MAE · '+row.count+' periods';
-    val.style.color='#b8d8e9';div.append(number,label,val);rankBox.append(div);
-   }
+  for(const e of eligible){
+   const row=e.row;
+   const div=document.createElement('div');div.className='rank-item';div.style.borderColor=row.color;
+   const number=document.createElement('strong');number.textContent='#'+row.place;number.style.color=row.color;
+   const label=document.createElement('span');label.textContent=srcTitle(row.src);
+   const val=document.createElement('div');val.textContent=row.score.toFixed(2)+'°F MAE · '+row.count+' periods · '+row.period+'h';
+   val.style.color='#b8d8e9';div.append(number,label,val);rankBox.append(div);
   }
- }else rankBox.textContent='No period-matched forecast/analysis pairs available.';
+ }else rankBox.textContent='No verified forecast/analysis pairs available for ranking.';
 
  const analysisSeries=[12,18].map(hours=>({
   hours,values:dates.map(date=>{
@@ -508,8 +509,9 @@ function renderGraph(){
     return a?.stats?.[S.scope]?.mean??null;
   })
  }));
+ const visibleAnalyses=analysisSeries.filter(row=>row.hours===12?S.showAnalysis12:S.showAnalysis18);
  const all=series.flatMap(row=>row.values.filter(finite)).concat(
-  S.metric==='mean'?analysisSeries.flatMap(row=>row.values.filter(finite)):[]);
+  S.metric==='mean'?visibleAnalyses.flatMap(row=>row.values.filter(finite)):[]);
 
  if(!all.length){
   g.fillStyle='#b8d8ec';g.font='13px Poppins';g.fillText('No matching plotted values. Check source, dates and analysis availability.',20,70);
@@ -525,7 +527,7 @@ function renderGraph(){
  }
  for(let i=0;i<labels.length;i++){const x=project(i,lo)[0];g.fillText(labels[i],Math.max(2,x-16),h-22)}
  if(S.metric==='mean'){
-  for(const a of analysisSeries){
+  for(const a of visibleAnalyses){
    const color=a.hours===12?'#ffffff':'#85ebff';
    g.save();g.setLineDash(a.hours===12?[8,5]:[3,4]);
    for(let i=1;i<a.values.length;i++){
@@ -568,7 +570,7 @@ function renderGraph(){
  $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':
   'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
  $('graphHint').textContent=S.metric.toUpperCase()+' · '+series.filter(x=>x.values.some(finite)).length+
- ' sources · Rankings separated by 12h and 18h periods against '+(S.analysisSource==='analysis'?'URMA':'RTMA');
+ ' sources · Combined ranking (12h deterministic / 18h percentiles) against '+(S.analysisSource==='analysis'?'URMA':'RTMA');
  $('graphTooltip').style.display='none';
 }
 function populateLeadAudit(){
@@ -650,6 +652,7 @@ function update(){
  $('leadValue').textContent='−'+S.lead+'h';
  $('leadIssued').textContent=currentSlot()?.ndfdReferenceUtc?'Cutoff '+UTC(currentSlot().ndfdReferenceUtc).slice(0,16):'selected lead';
  document.querySelectorAll('#dateStrip [data-date]').forEach(b=>b.classList.toggle('active',b.dataset.date===S.date));
+ $('showAnalysis12').checked=S.showAnalysis12;$('showAnalysis18').checked=S.showAnalysis18;
  const layer=selectedLayer(),slot=currentSlot(),truth=analysisFor(currentRecord(),S.source);
  let errors=[];
  if(!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
@@ -684,6 +687,8 @@ evt('[data-analysis]','analysis',x=>S.analysisSource=x);
 evt('[data-chartmode]','chartmode',x=>S.chartmode=x);
 evt('[data-metric]','metric',x=>S.metric=x);
 evt('[data-mapmode]','mapmode',x=>S.mapmode=x);
+$('showAnalysis12').addEventListener('change',e=>{S.showAnalysis12=e.target.checked;renderGraph()});
+$('showAnalysis18').addEventListener('change',e=>{S.showAnalysis18=e.target.checked;renderGraph()});
 $('date').addEventListener('change',e=>{S.date=e.target.value;update()});
 $('lead').addEventListener('input',e=>{S.lead=+e.target.value;update()});
 $('leadBack').addEventListener('click',()=>{S.lead=Math.max(12,S.lead-12);update()});
