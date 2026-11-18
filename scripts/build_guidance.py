@@ -177,7 +177,16 @@ def fetch_boundaries():
         for feat in collection.get("features",[]):
             try:
                 geom=shape(feat.get("geometry") or {})
-                cut=geom.intersection(viewport).simplify(.006,preserve_topology=True)
+                # The state boundaries must NOT be polygon-clipped to a
+                # rectangular map viewport: that operation manufactures
+                # straight rectangle sides which show as a box around MOB.
+                # Keep real AL/FL/MS geometry and simplify it *before*
+                # browser canvas clipping (which happens naturally).
+                # Other layers stay clipped for speed.
+                if collection is outlines["states"]:
+                    cut=geom.simplify(.012,preserve_topology=True)
+                else:
+                    cut=geom.intersection(viewport).simplify(.006,preserve_topology=True)
                 if cut.is_empty:continue
                 feat["geometry"]=mapping(cut)
                 compact.append(feat)
