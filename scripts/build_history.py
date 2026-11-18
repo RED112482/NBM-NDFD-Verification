@@ -27,7 +27,8 @@ from scipy.spatial import cKDTree
 from eccodes import codes_get, codes_get_array, codes_grib_new_from_file, codes_release
 from build_guidance import (DATA, NBM_BUCKET, WFO, PERCENTILES, safe_float,
                             s3, idx_lines, nbm_key, fetch_idx_message, meta_valid,
-                            object_exists, read_nbm_field, stats, layer_payload)
+                            object_exists, read_nbm_field, stats, layer_payload,
+                            extrema_metadata_valid)
 
 OUT = DATA / "history.json"
 GEOMETRY = DATA / "guidance.json"
@@ -83,6 +84,11 @@ def payload(grib, points, source, issued=None):
             "stepRange": str(meta.get("stepRange") or ""),
             "name": str(meta.get("name") or ""),
             "percentile": safe_float(meta.get("percentileValue")),
+            "shortName": str(meta.get("shortName") or ""),
+            "startStep": safe_float(meta.get("startStep")),
+            "endStep": safe_float(meta.get("endStep")),
+            "typeOfLevel": str(meta.get("typeOfLevel") or ""),
+            "level": safe_float(meta.get("level")),
         },
     }
 
@@ -163,7 +169,8 @@ def decode_grib_file(raw, wanted_dt, namehint):
                     meta={}
                     for key in ("shortName","name","units","stepType","stepRange",
                                 "percentileValue","validityDate","validityTime",
-                                "dataDate","dataTime","forecastTime"):
+                                "dataDate","dataTime","forecastTime","startStep","endStep",
+                                "typeOfLevel","level","productDefinitionTemplateNumber"):
                         try: meta[key]=codes_get(gid,key)
                         except Exception: pass
                     if meta_valid(meta) != wanted_dt: continue
@@ -171,6 +178,11 @@ def decode_grib_file(raw, wanted_dt, namehint):
                     name=str(meta.get("name") or "").lower()
                     if not (namehint in short or
                             ("minimum" in name if namehint=="tmin" else "maximum" in name)):
+                        continue
+                    product = "mint" if namehint == "tmin" else "maxt"
+                    valid, reason = extrema_metadata_valid(meta, product, wanted_dt)
+                    if not valid:
+                        print("Rejected NDFD archived field:", reason, flush=True)
                         continue
                     vals=np.asarray(codes_get_array(gid,"values"),dtype=float)
                     lats=np.asarray(codes_get_array(gid,"latitudes"),dtype=float)
