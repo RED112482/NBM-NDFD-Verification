@@ -39,7 +39,7 @@ LEADS = (12, 24, 36, 48, 60)
 HISTORY_DAYS = int(os.environ.get("HISTORY_DAYS", "3"))
 ANALYSIS_HOURS = 13  # inclusive 12-hour minimum/maximum window
 MIN_HOUR_COVERAGE = 12  # no verification based on incomplete day
-MAX_ARCHIVE_OBJECTS = 8
+MAX_ARCHIVE_OBJECTS = 24
 _ndfd_listing = {}
 _grid_index_cache = {}
 
@@ -149,9 +149,10 @@ def ndfd_keys_before(reference, product):
     prior = [r for r in rows if r[0] <= reference]
     if not prior:
         return []
-    latest = max(r[0] for r in prior)
-    group = [key for issued,key in prior if issued == latest]
-    return [(latest,key) for key in group[:MAX_ARCHIVE_OBJECTS]]
+    # The newest WMO issuance can omit an older valid period. Try prior
+    # issuances, newest first; never borrow one issued after reference.
+    ordered = sorted(prior, reverse=True)
+    return ordered[:MAX_ARCHIVE_OBJECTS]
 
 
 def decode_grib_file(raw, wanted_dt, namehint):
@@ -312,7 +313,7 @@ def run():
       "schemaVersion":1,"generatedUtc":iso(now),"office":WFO,
       "points":points,"bounds":base["bounds"],"sampleSpacingDegrees":base.get("sampleSpacingDegrees",.075),"boundaries":{},
       "leads":list(LEADS),"days":{"mint":{},"maxt":{}},
-      "errors":[],"method":{
+      "errors":[],"audit":[],"method":{
           "nbm":"Operational pairing: 00Z NDFD reference -> preceding 13Z NBM, 12Z NDFD reference -> preceding 01Z NBM. Actual NBM forecast age = NDFD lead + 11h.",
           "ndfd":"Historical NWS WMO archive, last issuance at/before reference time.",
           "verification":"URMA/RTMA 12-hour extrema are derived from complete hourly two-meter temperature analyses. Never present as native URMA TMIN/TMAX.",
@@ -400,6 +401,37 @@ def run():
                         slot["ndfd"]["error"]=match_errors(
                             slot["ndfd"],truth,points)
                 slot["verificationSource"] = truth_source
+                # Persist a five-day scientific audit, including outlier counts.
+                # NEVER clip or suppress extreme errors: expose their provenance.
+                record = {"product":product,"validUtc":key,"nominalLead":lead,
+                    "nbmCycleUtc":slot["nbmCycleUtc"],"referenceUtc":slot["ndfdReferenceUtc"],
+                    "analysisSource":truth_source}
+                analysis_fields = {"URMA":block["analysis"],"RTMA":block["rtma"]}
+                for src_name, field in (("NDFD",slot["ndfd"]),
+                                        ("NBM deterministic",slot["nbm"]["det"])):
+                    label="ndfd" if src_name=="NDFD" else "nbmDet"
+                    if field:
+                        record[label]={"meta":field["meta"],
+                                      "stats":field["stats"].get("land")}
+                        if slot["nbm"].get("validOffsetHours") and src_name!="NDFD":
+                            record[label]["status"]="VALID TIME OFFSET: NOT EXACTLY VERIFIED"
+                        for ana_name, ana_field in analysis_fields.items():
+                            if not ana_field:continue
+                            forecast=np.asarray([np.nan if x is None else x for x in field["values"]],dtype=float)
+                            observed=np.asarray([np.nan if x is None else x for x in ana_field["values"]],dtype=float)
+                            land=np.asarray([p["land"] for p in points],dtype=bool)
+                            mask=np.isfinite(forecast)&np.isfinite(observed)&land
+                            diff=forecast[mask]-observed[mask]
+                            if diff.size:
+                                record[label][ana_name]={"n":int(diff.size),
+                                    "mae":round(float(np.mean(abs(diff))),2),
+                                    "bias":round(float(np.mean(diff)),2),
+                                    "absErrorOver20F":int(np.sum(np.abs(diff)>20)),
+                                    "maxAbsoluteErrorF":round(float(np.max(np.abs(diff))),1)}
+                    else:
+                        record[label]={"status":"MISSING OR REJECTED: check GRIB interval/validity"}
+                history["audit"].append(record)
+                print("FIELD AUDIT",json.dumps(record,separators=(",",":")),flush=True)
                 block["leads"][str(lead)]=slot
                 # Checkpoint each lead so failed runs can be inspected.
                 history["days"][product][key]=block
