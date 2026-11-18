@@ -28,7 +28,7 @@ from eccodes import codes_get, codes_get_array, codes_grib_new_from_file, codes_
 from build_guidance import (DATA, NBM_BUCKET, WFO, PERCENTILES, safe_float,
                             s3, idx_lines, nbm_key, fetch_idx_message, meta_valid,
                             object_exists, read_nbm_field, stats, layer_payload,
-                            extrema_metadata_valid)
+                            extrema_metadata_valid, grib_extrema_window)
 
 OUT = DATA / "history.json"
 GEOMETRY = DATA / "guidance.json"
@@ -90,6 +90,10 @@ def payload(grib, points, source, issued=None):
             "endStep": safe_float(meta.get("endStep")),
             "typeOfLevel": str(meta.get("typeOfLevel") or ""),
             "level": safe_float(meta.get("level")),
+            "gribReferenceDate": str(meta.get("dataDate") or ""),
+            "gribReferenceTime": str(meta.get("dataTime") or ""),
+            "actualWindowStartUtc": iso(grib_extrema_window(meta)[0]) if grib_extrema_window(meta) else None,
+            "actualWindowEndUtc": iso(grib_extrema_window(meta)[1]) if grib_extrema_window(meta) else None,
         },
     }
 
@@ -183,6 +187,11 @@ def decode_grib_file(raw, wanted_dt, namehint):
                         continue
                     product = "mint" if namehint == "tmin" else "maxt"
                     valid, reason = extrema_metadata_valid(meta, product, wanted_dt)
+                    exact_window=(wanted_dt-timedelta(hours=12),wanted_dt)
+                    window=grib_extrema_window(meta)
+                    if valid and window!=exact_window:
+                        valid=False
+                        reason="actual GRIB extrema window "+str(window)+" is not "+str(exact_window)
                     if not valid:
                         print("Rejected NDFD archived field:", reason, flush=True)
                         continue
@@ -365,6 +374,8 @@ def run():
                 init=reference-timedelta(hours=11)
                 slot={"nominalLead":lead,"actualLeadHours":lead+11,
                       "nbmCycleUtc":iso(init),"ndfdReferenceUtc":iso(reference),
+                      "expectedWindowStartUtc":iso(valid-timedelta(hours=12)),
+                      "expectedWindowEndUtc":iso(valid),
                       "nbm":{"det":None,"percentiles":{}},
                       "ndfd":None,"errors":{}}
                 try:
