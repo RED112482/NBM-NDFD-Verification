@@ -43,6 +43,12 @@ select{width:100%;max-width:100%}
 .rankings .rank-item{border:1px solid #345169;background:#102237;border-radius:7px;padding:8px 6px;font-size:10px;line-height:1.5;min-width:0;overflow-wrap:anywhere}
 .rankings .rank-item strong{font-size:13px;margin-right:6px}.ranking-group-header{font-size:10px;line-height:1.5;color:#c2e7fa;font-weight:800;margin-top:6px;padding:6px 2px;border-bottom:1px solid #345169}
 .rank-warning{font-size:9px;color:#90b5c9;margin-top:9px;line-height:1.5}
+.spot-audit{margin-top:10px;background:#071723;border:1px solid #31516a;border-radius:7px;padding:8px}
+.spot-audit summary{cursor:pointer;font-weight:700;color:#c6edfb;font-size:10px}
+.spot-explain{color:#b0cbda;font-size:9px;margin:7px 0}
+.spot-table-wrap{overflow:auto}#rawAuditTable{width:100%;border-collapse:collapse;font-size:10px}
+#rawAuditTable th,#rawAuditTable td{padding:5px 7px;text-align:right;border-bottom:1px solid #2f4b5d;white-space:nowrap}
+#rawAuditTable th:first-child,#rawAuditTable td:first-child{text-align:left}
 .analysis-sources{margin-top:-6px}.analysis-sources #comparisonText{font-size:10px;color:#d1e7f6}
 @media(max-width:1050px){.map-and-ranks{grid-template-columns:minmax(0,1fr) 130px}}
 .score-key{font-size:10px;color:#bddbec;margin:6px 0 0;display:flex;gap:14px;align-items:center}.score-key i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
@@ -94,6 +100,9 @@ select{width:100%;max-width:100%}
  <label><input type="checkbox" id="cwaCheck" checked>MOB CWA</label><label><input type="checkbox" id="cityCheck" checked>City temperatures</label></div></div>
  <div class="surface"><canvas id="mapCanvas"></canvas><div id="mapTooltip"></div></div>
  <div class="scale-legend"><div class="scale-header"><b id="scaleTitle">Temperature · °F</b><span id="scaleCaption">20–110°F</span></div><div id="scaleRamp" class="scale-ramp"></div><div id="scaleTicks" class="scale-ticks"></div></div>
+ <details class="spot-audit"><summary>Inspect raw NDFD/NBM grids · 6 sampled locations</summary>
+ <div class="spot-explain">Unsmoothed forecast grid values at nearest analysis nodes. These are not station observations. The comparison uses the selected 12-hour URMA/RTMA analysis.</div>
+ <div class="spot-table-wrap"><table id="rawAuditTable"><thead><tr><th>Location</th><th>NDFD</th><th>NBM Det</th><th>Analysis</th><th>NDFD Δ</th><th>NBM Δ</th></tr></thead><tbody></tbody></table></div></details>
 </section>
 <section class="panel visual">
  <div class="top"><div><h2 id="graphTitle">Forecast Evolution</h2><div class="meta">All series are matched to the same valid date/time</div></div></div>
@@ -543,6 +552,24 @@ function renderGraph(){
  ' sources · Rankings separated by 12h and 18h periods against '+(S.analysisSource==='analysis'?'URMA':'RTMA');
  $('graphTooltip').style.display='none';
 }
+function populateRawAudit(){
+ const tbody=$('rawAuditTable').querySelector('tbody');tbody.replaceChildren();
+ const checks=currentSlot()?.diagnostics?.sampledPoints||{};
+ const sourceKey=S.analysisSource==='analysis'?'urma12':'rtma12';
+ const fmt=v=>finite(v)?v.toFixed(1)+'°':'—';
+ const delta=(a,b)=>finite(a)&&finite(b)?((a-b)>0?'+':'')+(a-b).toFixed(1)+'°':'—';
+ for(const [city,p] of Object.entries(checks)){
+  const row=document.createElement('tr');
+  const values=[city,fmt(p.ndfd),fmt(p.det),fmt(p[sourceKey]),delta(p.ndfd,p[sourceKey]),delta(p.det,p[sourceKey])];
+  for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}
+  tbody.append(row);
+ }
+ if(!Object.keys(checks).length){
+  const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=6;
+  cell.textContent='Raw grid spot checks will populate after the five-day history refresh.';
+  row.append(cell);tbody.append(row);
+ }
+}
 function populateStats(){
  const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source),pair=comparison(currentRecord(),S.lead,S.source);
  const stat=field?.stats?.[S.scope],err=pair?.stats?.[S.scope],scope=S.scope;
@@ -585,7 +612,7 @@ function update(){
   ' · '+(pair?pair.periodHours+'h period matched':'Period match not verified / missing analysis');
  if(!pair&&layer&&currentRecord())errors.push('Period-matched analysis unavailable or GRIB window failed verification. No error/ranking is shown for this source.');
  $('alert').textContent=errors.join('\n');
- populateStats();renderMap();renderGraph();
+ populateStats();populateRawAudit();renderMap();renderGraph();
 }
 function changeProduct(x){S.product=x;selDates();update()}
 function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
@@ -625,7 +652,14 @@ mc.addEventListener('pointermove',e=>{
  const x=e.clientX-rect.left,y=e.clientY-rect.top;
  let best=null,dist=Infinity;
  for(let i=0;i<pts.length;i++){if(!scopeNode(pts[i])||!finite(vals[i]))continue;const [px,py]=v.map(pts[i].lon,pts[i].lat),d=(px-x)**2+(py-y)**2;if(d<dist){best=i;dist=d}}
- if(best!=null&&dist<450){t.style.display='block';t.style.left=Math.min(rect.width-110,x+12)+'px';t.style.top=Math.max(2,y-27)+'px';t.textContent=(S.mapmode==='error'?'Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+': ':'')+(S.mapmode==='error'&&vals[best]>0?'+':'')+vals[best].toFixed(1)+'°F'}else t.style.display='none';
+ if(best!=null&&dist<450){
+  t.style.display='block';t.style.left=Math.min(rect.width-240,x+12)+'px';t.style.top=Math.max(2,y-40)+'px';
+  const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source);
+  const fv=field?.values?.[best],av=truth?.values?.[best];
+  const fmt=v=>finite(v)?v.toFixed(1)+'°F':'n/a';
+  t.textContent=sourceName()+' '+fmt(fv)+' | '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
+    ' '+fmt(av)+' | Forecast−analysis '+(finite(fv)&&finite(av)?((fv-av)>=0?'+':'')+(fv-av).toFixed(1)+'°F':'n/a');
+ }else t.style.display='none';
 });
 mc.addEventListener('pointerleave',()=>{$('mapTooltip').style.display='none'});
 mc.addEventListener('wheel',e=>{e.preventDefault();S.zoom=Math.max(.65,Math.min(7,S.zoom*(e.deltaY>0?.86:1.16)));renderMap()},{passive:false});
