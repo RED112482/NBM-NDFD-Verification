@@ -75,6 +75,26 @@ jobs:
                           print("REVIEW >20F:",row["product"],row["validUtc"],
                                 "lead",row["nominalLead"],source,analysis,verification)
           assert not problems, "Invalid extrema GRIB metadata: "+str(problems[:15])
+          # Verify separate scientific windows are published correctly.
+          from datetime import datetime, timedelta
+          validated = {"12h":0,"18h":0}
+          for product,days in p["days"].items():
+              for valid_key,day in days.items():
+                  valid = datetime.fromisoformat(valid_key.replace("Z","+00:00"))
+                  for key,hours in (("analysis",12),("rtma",12),
+                                    ("analysis18",18),("rtma18",18)):
+                      a = day.get(key)
+                      if a is None:
+                          continue
+                      assert a["meta"].get("periodHours")==hours,(product,valid_key,key)
+                      expected_end=valid+timedelta(hours=6 if hours==18 else 0)
+                      assert datetime.fromisoformat(a["meta"]["endUtc"].replace("Z","+00:00"))==expected_end
+                      assert a["meta"]["hourlySamples"]==hours+1
+                      validated[f"{hours}h"]+=1
+                  for slot in day["leads"].values():
+                      for pct,layer in slot["nbm"].get("percentiles",{}).items():
+                          assert layer["meta"].get("periodHours")==18, (product,valid_key,pct)
+          print("Validated distinct analysis extrema windows:",validated)
           print("Validated five-day metadata audit:", len(p["audit"]), "records")
 
           PY
