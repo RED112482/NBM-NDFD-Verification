@@ -300,6 +300,9 @@ def decode_message_bytes(body: bytes):
                     "startStep",
                     "endStep",
                     "stepRange",
+                    "typeOfLevel",
+                    "level",
+                    "productDefinitionTemplateNumber",
                 ):
                     try:
                         meta[name] = codes_get(gid, name)
@@ -337,6 +340,41 @@ def meta_valid(meta):
         return None
 
 
+def extrema_metadata_valid(meta, product, expected_valid=None):
+    """Reject misleading temperature fields with a mismatched statistical window.
+    Require the actual GRIB minimum/maximum statistic, 12-hour duration,
+    2-m surface level, and exact valid endpoint.
+    """
+    expected_type = "min" if product == "mint" else "max"
+    short = str(meta.get("shortName") or "").lower()
+    name = str(meta.get("name") or "").lower()
+    if expected_type not in str(meta.get("stepType") or "").lower():
+        return False, "GRIB stepType not " + expected_type
+    if (short not in ("tmin", "tmax") and
+            expected_type not in name):
+        return False, "GRIB element not TMIN/TMAX"
+    if expected_valid is not None and meta_valid(meta) != expected_valid:
+        return False, "GRIB validity does not match selected period"
+    level_type = str(meta.get("typeOfLevel") or "").lower()
+    level = meta.get("level")
+    if level_type and level_type not in ("heightaboveground", "surface"):
+        return False, "Unexpected GRIB vertical level: " + level_type
+    if level_type == "heightaboveground" and level is not None:
+        if safe_float(level) != 2:
+            return False, "Not 2-m temperature"
+    try:
+        start = float(meta["startStep"])
+        end = float(meta["endStep"])
+    except (KeyError, ValueError, TypeError):
+        steps = re.findall(r"\\d+(?:\\.\\d+)?", str(meta.get("stepRange") or ""))
+        if len(steps) != 2:
+            return False, "GRIB statistical range cannot be independently verified"
+        start, end = map(float, steps)
+    if abs(end-start-12) > 0.01:
+        return False, f"Expected 12-hour extrema; GRIB interval is {end-start:g}h"
+    return True, None
+
+
 def field_candidates(lines, product):
     token = ":TMIN:" if product == "mint" else ":TMAX:"
     return [i for i, line in enumerate(lines) if token in line.upper()]
@@ -371,7 +409,9 @@ def read_nbm_field(init_dt, valid_dt, product):
         for i in field_candidates(lines, product):
             try:
                 msg = fetch_idx_message(NBM_BUCKET, core, lines, i)
-                if meta_valid(msg[3]) != valid_dt:
+                valid, why = extrema_metadata_valid(msg[3], product, valid_dt)
+                if not valid:
+                    print("NBM rejected", core, why, flush=True)
                     continue
                 # Deterministic message should not carry a percentile.
                 if msg[3].get("percentileValue") not in (None, "missing"):
@@ -527,6 +567,12 @@ def layer_payload(grib, sample_points, source=None):
             ),
             "stepType": str(meta.get("stepType") or ""),
             "stepRange": str(meta.get("stepRange") or ""),
+            "startStep": safe_float(meta.get("startStep")),
+            "endStep": safe_float(meta.get("endStep")),
+            "shortName": str(meta.get("shortName") or ""),
+            "name": str(meta.get("name") or ""),
+            "typeOfLevel": str(meta.get("typeOfLevel") or ""),
+            "level": safe_float(meta.get("level")),
             "source": source,
         },
     }
