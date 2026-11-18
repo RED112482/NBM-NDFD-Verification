@@ -274,45 +274,62 @@ function graphLine(g,arr,project,color){
  g.fillStyle=color;
  for(let i=0;i<arr.length;i++)if(finite(arr[i])){const [x,y]=project(i,arr[i]);g.beginPath();g.arc(x,y,3.5,0,Math.PI*2);g.fill()}
 }
+let graphHits=[];
+const srcTitle=src=>src==='ndfd'?'NDFD':src==='det'?'NBM deterministic':'NBM P'+src;
 function renderGraph(){
- const {g,w,h}=prepareCanvas($('graphCanvas'));
- g.fillStyle='#071723';g.fillRect(0,0,w,h);
- const days=currentDays();
- let labels=[],series=[];
+ const {g,w,h}=prepareCanvas($('graphCanvas'));g.fillStyle='#071723';g.fillRect(0,0,w,h);
+ graphHits=[];const days=currentDays();let labels=[],series=[],dates=[];
  const sources=['ndfd','det','10','25','50','75','90'];
  if(days&&Object.keys(days).length){
   if(S.chartmode==='lead'){
-   const day=currentRecord();labels=['60','48','36','24','12'].map(n=>'-'+n+'h');
-   for(const src of sources){
-    series.push({src,color:C[src],values:[60,48,36,24,12].map(n=>metricFor(layerFor(day,n,src),S.metric))});
-   }
+   const day=currentRecord(),leads=[60,48,36,24,12];
+   dates=leads.map(()=>S.date);labels=leads.map(n=>'−'+n+'h');
+   for(const src of sources)series.push({src,color:C[src],
+    values:leads.map(n=>metricFor(layerFor(day,n,src),S.metric)),
+    skill:leads.map(n=>layerFor(day,n,src)?.error?.stats?.[S.scope]?.mae??null)});
   }else{
-   const keys=Object.keys(days).sort();labels=keys.map(x=>x.slice(5,10));
-   for(const src of sources){series.push({src,color:C[src],values:keys.map(k=>metricFor(layerFor(days[k],S.lead,src),S.metric))})}
+   const keys=Object.keys(days).sort();dates=keys;labels=keys.map(x=>x.slice(5,10));
+   for(const src of sources)series.push({src,color:C[src],
+    values:keys.map(k=>metricFor(layerFor(days[k],S.lead,src),S.metric)),
+    skill:keys.map(k=>layerFor(days[k],S.lead,src)?.error?.stats?.[S.scope]?.mae??null)});
   }
  }else{
-   const f=currentForward();labels=S.current?.cycles?.map(x=>x.slice(5,16).replace('T',' '))||[];
-   series=[
-    {src:'det',color:C.det,values:(S.current?.cycles||[]).map(c=>metricFor(f?.nbm?.[c]?.det,S.metric))},
-    {src:'ndfd',color:C.ndfd,values:labels.map(()=>metricFor(f?.ndfd,S.metric))}
-   ];
+  const f=currentForward();labels=S.current?.cycles?.map(x=>x.slice(5,16).replace('T',' '))||[];dates=labels.map(()=>S.date);
+  series=[{src:'det',color:C.det,values:(S.current?.cycles||[]).map(c=>metricFor(f?.nbm?.[c]?.det,S.metric)),skill:[]},
+    {src:'ndfd',color:C.ndfd,values:labels.map(()=>metricFor(f?.ndfd,S.metric)),skill:[]}];
  }
- const all=series.flatMap(s=>s.values.filter(finite));
- const pad={l:57,r:18,t:40,b:56},pw=Math.max(5,w-pad.l-pad.r),ph=Math.max(5,h-pad.t-pad.b);
+ const all=series.flatMap(row=>row.values.filter(finite));
+ const pad={l:57,r:22,t:48,b:56},pw=Math.max(5,w-pad.l-pad.r),ph=Math.max(5,h-pad.t-pad.b);
  if(!all.length){g.fillStyle='#b8d8ec';g.font='13px Poppins';g.fillText('No compatible data for this graph metric or period',20,70);return}
  let min=Math.min(...all),max=Math.max(...all),span=Math.max(3,max-min),lo=min-span*.17,hi=max+span*.17;
  if(S.metric==='mae')lo=Math.min(0,lo);
  const project=(i,v)=>[pad.l+pw*(labels.length<=1?.5:i/(labels.length-1)),pad.t+ph*(hi-v)/(hi-lo)];
  g.strokeStyle='#28445a';g.lineWidth=1;g.fillStyle='#a6c6d9';g.font='10px Poppins';
- for(let i=0;i<=5;i++){const v=lo+(hi-lo)*i/5;const y=project(0,v)[1];g.beginPath();g.moveTo(pad.l,y);g.lineTo(w-pad.r,y);g.stroke();g.fillText(v.toFixed(1)+'°',8,y+4)}
+ for(let i=0;i<=5;i++){const v=lo+(hi-lo)*i/5,y=project(0,v)[1];g.beginPath();g.moveTo(pad.l,y);g.lineTo(w-pad.r,y);g.stroke();g.fillText(v.toFixed(1)+'°',8,y+4)}
  for(let i=0;i<labels.length;i++){const x=project(i,lo)[0];g.fillText(labels[i],Math.max(0,x-16),h-28)}
  let count=0;
  for(const row of series){if(!row.values.some(finite))continue;graphLine(g,row.values,project,row.color);count++}
+ // Retain source-identifying line color, and encode *relative verified MAE* by marker color.
+ for(const row of series)for(let i=0;i<row.values.length;i++){
+  const val=row.values[i];if(!finite(val))continue;
+  const [x,y]=project(i,val),scores=series.map(q=>q.skill[i]).filter(finite),mae=row.skill[i];
+  let tier='Not verified',col='#a6b7c7';
+  if(finite(mae)&&scores.length>=2){
+   const best=Math.min(...scores),worst=Math.max(...scores),relative=worst>best?(mae-best)/(worst-best):0;
+   tier=relative<=1/3?'Best tier':relative<=2/3?'Middle tier':'Worst tier';
+   col=relative<=1/3?'#36dc7a':relative<=2/3?'#f4d94c':'#ff6363';
+  }
+  g.beginPath();g.arc(x,y,5,0,Math.PI*2);g.fillStyle=col;g.fill();g.strokeStyle='#071723';g.lineWidth=1;g.stroke();
+  graphHits.push({x,y,src:row.src,date:dates[i],label:labels[i],value:val,mae,tier,metric:S.metric,
+    lead:S.chartmode==='daily'?S.lead:Number(labels[i]?.replace(/[^0-9]/g,''))});
+ }
  g.font='10px Poppins';let x=pad.l,y=17;
  for(const row of series){if(!row.values.some(finite))continue;const label=row.src==='ndfd'?'NDFD':row.src==='det'?'NBM Det':'P'+row.src;
- g.fillStyle=row.color;g.fillRect(x,y-8,11,4);g.fillStyle='#d9eafa';g.fillText(label,x+15,y-2);x+=label.length*7+32;if(x>w-80){x=pad.l;y+=15}}
+  g.fillStyle=row.color;g.fillRect(x,y-8,11,4);g.fillStyle='#d9eafa';g.fillText(label,x+15,y-2);
+  x+=label.length*7+32;if(x>w-80){x=pad.l;y+=15}
+ }
  $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
- $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series';
+ $('graphHint').textContent=S.metric.toUpperCase()+' · '+count+' plotted series · hover markers';
 }
 function populateStats(){
  const layer=selectedLayer(),scope=S.scope;
@@ -371,6 +388,18 @@ $('leadBack').addEventListener('click',()=>{S.lead=Math.max(12,S.lead-12);update
 $('leadNext').addEventListener('click',()=>{S.lead=Math.min(60,S.lead+12);update()});
 for(const name of ['stateCheck','countyCheck','cwaCheck','cityCheck'])$(name).addEventListener('change',renderMap);
 let dragging=false,last=null;
+const gc=$('graphCanvas');
+gc.addEventListener('pointermove',e=>{
+ const tip=$('graphTooltip'),rect=gc.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;
+ const h=graphHits.reduce((best,q)=>{const d=(q.x-x)**2+(q.y-y)**2;return d<(best?.d??Infinity)?{q,d}:best},null);
+ if(!h||h.d>225){tip.style.display='none';return}
+ const q=h.q,score=finite(q.mae)?' · MAE '+q.mae.toFixed(1)+'°F':' · No verifying score';
+ tip.textContent=srcTitle(q.src)+' | Valid '+(q.date?UTC(q.date):'—')+
+ ' | −'+q.lead+'h | '+q.metric.toUpperCase()+' '+q.value.toFixed(1)+'°F | '+q.tier+score;
+ tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-275,x+12))+'px';
+ tip.style.top=Math.max(4,y-52)+'px';
+});
+gc.addEventListener('pointerleave',()=>{$('graphTooltip').style.display='none'});
 const mc=$('mapCanvas');
 mc.addEventListener('pointerdown',e=>{dragging=true;last=[e.clientX,e.clientY];mc.setPointerCapture(e.pointerId)});
 mc.addEventListener('pointerup',()=>{dragging=false;last=null});
