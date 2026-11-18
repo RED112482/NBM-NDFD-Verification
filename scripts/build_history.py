@@ -229,7 +229,18 @@ def ndfd_grib_before(reference, valid, product, points):
     must never be treated as the full official NDFD forecast grid."""
     land_count=sum(bool(p["land"]) for p in points)
     min_coverage=max(1,math.ceil(.80*land_count))
+    horizon=(valid-reference).total_seconds()/3600
+    family="Z98" if horizon<=72 else "Z97"
+    bulletin_prefix=("YHU" if product=="mint" else "YGU")+family+"_KWBN_"
     for issued,key in ndfd_keys_before(reference,product):
+        # The source family must match this valid date's lead at the
+        # historical snapshot, not another split of the 7-day file.
+        if not key.rsplit("/",1)[-1].startswith(bulletin_prefix):
+            continue
+        # Reject silently borrowing an old file instead of the requested
+        # 00/12Z archived issuance. This does NOT alter any values.
+        if (reference-issued)>timedelta(hours=7):
+            continue
         try:
             raw=s3.get_object(Bucket=NDFD_BUCKET,Key=key)["Body"].read()
             matches=decode_grib_file(raw,valid,"tmin" if product=="mint" else "tmax")
@@ -240,6 +251,9 @@ def ndfd_grib_before(reference, valid, product, points):
                 if n < min_coverage:
                     continue
                 content["meta"]["landCoverageFraction"]=round(n/land_count,3)
+                content["meta"]["ndfdWmoFamily"]=family
+                content["meta"]["snapshotCutoffUtc"]=iso(reference)
+                content["meta"]["issuanceAgeMinutes"]=round((reference-issued).total_seconds()/60,1)
                 return content
         except Exception as exc:
             print("NDFD warning",product,valid,repr(exc),flush=True)
