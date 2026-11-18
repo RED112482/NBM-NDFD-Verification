@@ -72,7 +72,7 @@ select{width:100%;max-width:100%}
   <div class="field"><label>Verifying / valid date (UTC)</label><select id="date"></select></div>
   <div class="field"><label>NDFD snapshot lead · <span id="leadIssued">—</span></label><div class="lead-picker"><button id="leadBack">−</button><input id="lead" type="range" min="12" max="60" step="12" value="12" aria-label="NDFD snapshot lead hours"><button id="leadNext">+</button><strong id="leadValue">−12h</strong></div></div>
   <div class="field"><label>Geographic sample</label><div class="segment"><button data-scope="land" class="active">Land</button><button data-scope="marine">Marine</button><button data-scope="both">Both</button></div></div>
-  <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Error − Analysis</button></div></div>
+  <div class="field"><label>Map mode</label><div class="segment"><button data-mapmode="forecast" class="active">Forecast</button><button data-mapmode="error">Forecast − Analysis</button></div></div>
 </div>
 <div id="dateStrip" class="date-strip" aria-label="Choose valid date"></div>
 <div class="panel sources"><b style="font-size:10px;color:#afdaf1;margin-right:5px">FORECAST GUIDANCE</b>
@@ -198,7 +198,7 @@ const TEMP_STOPS=[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[6
 const BIAS_STOPS=[[-20,'#000000'],[-10,'#ffffff'],[-5,'#00ffff'],[-2,'#1769ff'],[0,'#000000'],[2,'#ff1717'],[5,'#ee00e9'],[10,'#ffffff'],[20,'#000000']];
 function renderScale(error){
  const stops=error?BIAS_STOPS:TEMP_STOPS;
- $('scaleTitle').textContent=error?'Forecast − analysis bias · °F':'Temperature · °F';
+ $('scaleTitle').textContent=error?'Forecast − selected analysis · °F':'Temperature · °F';
  $('scaleCaption').textContent=error?'Negative too cold · Positive too warm':'20–110°F · 10° steps';
  const ramp=$('scaleRamp'),ticks=$('scaleTicks');ramp.innerHTML='';ticks.innerHTML='';
  for(let i=0;i<180;i++){const v=(error?-20:20)+(error?40:90)*(i+.5)/180,el=document.createElement('span');el.style.background=gradient(v,stops);ramp.append(el)}
@@ -521,7 +521,7 @@ function update(){
  if(S.mapmode==='error'&&!comparison(currentRecord(),S.lead,S.source)?.values)errors.push('Forecast − selected analysis is unavailable for this date/lead.');
  if(S.metric!=='mean'&&!analysisFor(currentRecord()))errors.push('MAE and bias need the selected URMA or RTMA analysis.');
  const pair=comparison(currentRecord(),S.lead,S.source);
- $('comparisonText').textContent=sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
+ $('comparisonText').textContent='ERROR = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
   ' · '+(pair?.differentPeriod?'Exploratory (forecast/analysis periods differ)':'Matching endpoint comparison');
  if(pair?.differentPeriod)errors.push('Period mismatch: QMD percentiles are 18h extrema or NBM is offset; errors and rankings are exploratory, NOT period-matched verification.');
  $('alert').textContent=errors.join('\n');
