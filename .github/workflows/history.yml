@@ -24,7 +24,7 @@ concurrency:
 jobs:
   history:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,7 +36,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Generate actual historical grids from NOAA Open Data
         env:
-          HISTORY_DAYS: "3"
+          HISTORY_DAYS: "5"
           DEBUG_QMD: "0"
         run: python -u scripts/build_history.py
       - name: Validate history and provenance
@@ -48,7 +48,7 @@ jobs:
           assert p["schemaVersion"]==1
           assert p["office"]=="MOB"
           assert len(p["points"])>100
-          assert len(p["days"]["mint"])>=1
+          assert len(p["days"]["mint"])>=5
           for day,block in p["days"]["mint"].items():
               for lead in ("12","24","36","48","60"):
                   assert lead in block["leads"], (day,lead)
