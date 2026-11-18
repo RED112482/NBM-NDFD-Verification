@@ -41,7 +41,7 @@ select{width:100%;max-width:100%}
 .ranking-sidebar>b{font-size:10px;color:#c3e9fa;display:block;margin-bottom:8px;line-height:1.4}
 .rankings{display:flex;flex-direction:column;gap:6px}
 .rankings .rank-item{border:1px solid #345169;background:#102237;border-radius:7px;padding:8px 6px;font-size:10px;line-height:1.5;min-width:0;overflow-wrap:anywhere}
-.rankings .rank-item strong{font-size:13px;margin-right:6px}
+.rankings .rank-item strong{font-size:13px;margin-right:6px}.ranking-group-header{font-size:10px;line-height:1.5;color:#c2e7fa;font-weight:800;margin-top:6px;padding:6px 2px;border-bottom:1px solid #345169}
 .rank-warning{font-size:9px;color:#90b5c9;margin-top:9px;line-height:1.5}
 .analysis-sources{margin-top:-6px}.analysis-sources #comparisonText{font-size:10px;color:#d1e7f6}
 @media(max-width:1050px){.map-and-ranks{grid-template-columns:minmax(0,1fr) 130px}}
@@ -132,8 +132,12 @@ function currentDays(){return S.history?.days?.[S.product]||null}
 function currentRecord(){return currentDays()?.[S.date]||null}
 function currentSlot(){return currentRecord()?.leads?.[String(S.lead)]||null}
 function currentForward(){return S.current?.products?.[S.product]?.[S.date]||null}
-function analysisFor(day=currentRecord()){
- return S.analysisSource==='analysis'?day?.analysis||null:day?.rtma||null;
+const isQmd=src=>!['ndfd','det'].includes(src);
+function analysisFor(day=currentRecord(),src=S.source){
+ if(!day)return null;
+ const suffix=isQmd(src)?'18':'';
+ return S.analysisSource==='analysis'?day['analysis'+suffix]||null:
+  day['rtma'+suffix]||null;
 }
 function layerFor(day,lead,src){
  const slot=day?.leads?.[String(lead)];
@@ -151,7 +155,7 @@ const comparisonCache=new Map();
 function comparison(day,lead,src){
  const cacheKey=[S.product,day?.validUtc,lead,src,S.analysisSource].join('|');
  if(comparisonCache.has(cacheKey))return comparisonCache.get(cacheKey);
- const field=layerFor(day,lead,src),truth=analysisFor(day);
+ const field=layerFor(day,lead,src),truth=analysisFor(day,src);
  if(!field?.values||!truth?.values||field.values.length!==truth.values.length)return null;
  const values=[],by={land:[],marine:[],both:[]};
  const points=S.history?.points||S.current?.points||[];
@@ -169,8 +173,18 @@ function comparison(day,lead,src){
     bias:arr.reduce((a,b)=>a+b,0)/n,n}:null;
  }
  const slot=day?.leads?.[String(lead)];
- const differentPeriod=!['ndfd','det'].includes(src)||src==='det'&&slot?.nbm?.validOffsetHours;
- const result={values,stats,differentPeriod,forecast:field,truth};
+ const forecastWindow=isQmd(src)?18:12;
+ const truthWindow=truth?.meta?.periodHours??null;
+ const actualWindow=field?.meta?.periodHours??(
+    finite(field?.meta?.startStep)&&finite(field?.meta?.endStep)?
+    field.meta.endStep-field.meta.startStep:null);
+ const differentPeriod=actualWindow!==forecastWindow||truthWindow!==forecastWindow||
+    src==='det'&&!!slot?.nbm?.validOffsetHours||
+    (field.meta?.validUtc && (isQmd(src)?
+      new Date(field.meta.validUtc).getTime()!==new Date(day.validUtc).getTime()+6*3600000:
+      field.meta.validUtc!==day.validUtc));
+ if(differentPeriod)return null;
+ const result={values,stats,differentPeriod:false,periodHours:forecastWindow,forecast:field,truth};
  comparisonCache.set(cacheKey,result);return result;
 }
 function displayMetric(day,lead,src,metric){
@@ -420,33 +434,39 @@ function renderGraph(){
  // A line uses ONE color throughout; the sidebar uses that exact same rank.
  const eligible=series.map(row=>{
   const available=row.maes.filter(finite);
-  return {row,mae:available.length?available.reduce((a,b)=>a+b,0)/available.length:null,count:available.length};
- }).filter(x=>finite(x.mae)).sort((a,b)=>a.mae-b.mae);
- const best=eligible[0]?.mae,worst=eligible.at(-1)?.mae;
+  return {row,mae:available.length?available.reduce((a,b)=>a+b,0)/available.length:null,count:available.length,
+    period:isQmd(row.src)?18:12};
+ }).filter(x=>finite(x.mae));
  for(const row of series){row.rank=null;row.place=null;row.color='#8493a5';row.score=null}
- for(let i=0;i<eligible.length;i++){
-  const e=eligible[i],frac=worst>best?(e.mae-best)/(worst-best):.5;
-  e.row.rank=frac;e.row.place=i+1;e.row.color=rankColor(frac);e.row.score=e.mae;e.row.count=e.count;
+ for(const period of [12,18]){
+  const cohort=eligible.filter(x=>x.period===period).sort((a,b)=>a.mae-b.mae);
+  const best=cohort[0]?.mae,worst=cohort.at(-1)?.mae;
+  for(let i=0;i<cohort.length;i++){
+   const e=cohort[i],frac=worst>best?(e.mae-best)/(worst-best):.5;
+   e.row.rank=frac;e.row.place=i+1;e.row.color=rankColor(frac);e.row.score=e.mae;
+   e.row.count=e.count;e.row.period=period;e.row.cohortCount=cohort.length;
+  }
  }
  const rankBox=$('rankings');rankBox.innerHTML='';
  $('rankingTitle').textContent='Forecast ranking · '+(S.analysisSource==='analysis'?'URMA':'RTMA');
- $('rankWarning').textContent='NDFD is highlighted with a white glow in the graph. Sorted by averaged grid MAE for displayed '+(S.chartmode==='daily'?'dates':'leads')+
-  '. Percentiles (18h QMD) and shifted valid times are exploratory comparisons against 12h extrema.';
+ $('rankWarning').textContent='NDFD has white glow. Ranked within each valid-period family only: 12h NDFD/NBM deterministic and 18h QMD percentiles. Ineligible or missing source windows are excluded.';
  if(eligible.length){
-  for(const row of series.filter(row=>row.place!==null).sort((a,b)=>a.place-b.place)){
-   const div=document.createElement('div');div.className='rank-item';
-   div.style.borderColor=row.color;
-   const number=document.createElement('strong');number.textContent='#'+row.place;number.style.color=row.color;
-   const label=document.createElement('span');label.textContent=srcTitle(row.src);
-   const val=document.createElement('div');val.textContent=row.score.toFixed(2)+'°F MAE · '+row.count+' periods';
-   val.style.color='#b8d8e9';div.append(number,label,val);
-   if(!['ndfd','det'].includes(row.src)||currentSlot()?.nbm?.validOffsetHours&&row.src==='det'){
-    const tag=document.createElement('small');
-    tag.textContent=row.src==='det'?'Offset validity · exploratory':'18h QMD · exploratory';
-    tag.style.color='#f0c680';div.append(tag)}
-   rankBox.append(div);
+  for(const period of [12,18]){
+   const rows=series.filter(row=>row.place!==null&&row.period===period).sort((a,b)=>a.place-b.place);
+   if(!rows.length)continue;
+   const heading=document.createElement('div');heading.className='ranking-group-header';
+   heading.textContent=period===12?'12h NDFD / NBM deterministic':'18h NBM QMD percentiles';
+   rankBox.append(heading);
+   for(const row of rows){
+    const div=document.createElement('div');div.className='rank-item';div.style.borderColor=row.color;
+    const number=document.createElement('strong');number.textContent='#'+row.place;number.style.color=row.color;
+    const label=document.createElement('span');label.textContent=srcTitle(row.src);
+    const val=document.createElement('div');val.textContent=row.score.toFixed(2)+'°F MAE · '+row.count+' periods';
+    val.style.color='#b8d8e9';div.append(number,label,val);rankBox.append(div);
+   }
   }
- }else rankBox.textContent='No comparable forecast/analysis fields for this selection.';
+ }else rankBox.textContent='No period-matched forecast/analysis pairs available.';
+
  const all=series.flatMap(row=>row.values.filter(finite));
  if(!all.length){
   g.fillStyle='#b8d8ec';g.font='13px Poppins';g.fillText('No matching plotted values. Check source, dates and analysis availability.',20,70);
@@ -477,18 +497,18 @@ function renderGraph(){
    const [x,y]=project(i,vals[i]);g.beginPath();g.arc(x,y,row.src==='ndfd'?6.1:4.6,0,Math.PI*2);g.fillStyle=color;g.fill();
    g.strokeStyle=row.src==='ndfd'?'#efffff':'#071723';g.lineWidth=row.src==='ndfd'?2.2:1;g.stroke();
    graphHits.push({x,y,src:row.src,date:dates[i],lead:leads[i],value:vals[i],
-    mae:row.maes[i],tier:row.place?'Rank #'+row.place+' / '+eligible.length:'Unranked',
-    metric:S.metric,exploratory:!['ndfd','det'].includes(row.src)});
+    mae:row.maes[i],tier:row.place?'Rank #'+row.place+' / '+row.cohortCount+' ('+row.period+'h)':'Unranked',
+    metric:S.metric,periodHours:isQmd(row.src)?18:12});
   }
  }
  $('graphTitle').textContent=S.chartmode==='lead'?'Single valid date · Multiple forecast leads':
   'Multiple valid dates · Fixed forecast lead (−'+S.lead+'h)';
  $('graphHint').textContent=S.metric.toUpperCase()+' · '+series.filter(x=>x.values.some(finite)).length+
- ' sources · Ranking from mean MAE against '+(S.analysisSource==='analysis'?'URMA':'RTMA');
+ ' sources · Rankings separated by 12h and 18h periods against '+(S.analysisSource==='analysis'?'URMA':'RTMA');
  $('graphTooltip').style.display='none';
 }
 function populateStats(){
- const field=selectedLayer(),truth=analysisFor(),pair=comparison(currentRecord(),S.lead,S.source);
+ const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source),pair=comparison(currentRecord(),S.lead,S.source);
  const stat=field?.stats?.[S.scope],err=pair?.stats?.[S.scope],scope=S.scope;
  const write=(id,v,suffix='')=>$(id).textContent=v==null||!finite(v)&&typeof v==='number'?'—':String(typeof v==='number'?Math.round(v*100)/100:v)+suffix;
  write('mean',stat?.mean,'°');write('min',stat?.min,'°');write('max',stat?.max,'°');write('n',stat?.n);
@@ -505,10 +525,10 @@ function populateStats(){
   m.issuedUtc?'Guidance initialized '+UTC(m.issuedUtc):'',
   m.validUtc?'Forecast valid '+UTC(m.validUtc):'',
   m.stepRange?'Forecast interval '+m.stepRange:'',
-  pair?.differentPeriod?'EXPLORATORY ONLY: forecast and analysis intervals do not match; values are not formal forecast verification':'',
+  pair?'Period-matched '+pair.periodHours+'h verification':'VERIFICATION UNAVAILABLE: missing or mismatched forecast/analysis periods',
   truth?'Analysis '+(truth.meta?.stepRange||'12h')+' from hourly 2m temperatures':'No available analysis',
   m.verificationNote||'',
-  'Percentile error fields display pointwise deviations even when their native 18h QMD window differs from the 12h analysis; interpret cautiously.'
+  'NBM QMD 18h extremes are compared only to separate 18h hourly-derived URMA/RTMA extrema (00–18Z MinT, 12–06Z MaxT). NDFD/NBM core 12h fields use 12h analyses. Never mix these windows in official rankings.'
  ].filter(Boolean).join('  •  ');
 }
 function update(){
@@ -526,8 +546,8 @@ function update(){
  if(S.metric!=='mean'&&!analysisFor(currentRecord()))errors.push('MAE and bias need the selected URMA or RTMA analysis.');
  const pair=comparison(currentRecord(),S.lead,S.source);
  $('comparisonText').textContent='ERROR = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
-  ' · '+(pair?.differentPeriod?'Exploratory (forecast/analysis periods differ)':'Matching endpoint comparison');
- if(pair?.differentPeriod)errors.push('Period mismatch: QMD percentiles are 18h extrema or NBM is offset; errors and rankings are exploratory, NOT period-matched verification.');
+  ' · '+(pair?pair.periodHours+'h period matched':'Period match not verified / missing analysis');
+ if(!pair&&layer&&currentRecord())errors.push('Period-matched analysis unavailable or GRIB window failed verification. No error/ranking is shown for this source.');
  $('alert').textContent=errors.join('\n');
  populateStats();renderMap();renderGraph();
 }
@@ -551,7 +571,7 @@ gc.addEventListener('pointermove',e=>{
  const tip=$('graphTooltip'),rect=gc.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;
  const h=graphHits.reduce((best,q)=>{const d=(q.x-x)**2+(q.y-y)**2;return d<(best?.d??Infinity)?{q,d}:best},null);
  if(!h||h.d>225){tip.style.display='none';return}
- const q=h.q,score=finite(q.mae)?' · Grid MAE '+q.mae.toFixed(1)+'°F':' · No analysis comparison';
+ const q=h.q,score=finite(q.mae)?' · '+q.periodHours+'h grid MAE '+q.mae.toFixed(1)+'°F':' · No period-matched analysis';
  tip.textContent=srcTitle(q.src)+' | Valid '+(q.date?UTC(q.date):'—')+
  ' | −'+q.lead+'h | '+q.metric.toUpperCase()+' '+q.value.toFixed(1)+'°F | '+q.tier+score;
  tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-275,x+12))+'px';
