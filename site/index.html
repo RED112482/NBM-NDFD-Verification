@@ -227,26 +227,58 @@ function drawCities(g,V,points,vals,w,h){
 let rasterCache={key:null,canvas:null,n:0};
 function smoothRaster(points,vals,spacing,scope,error){
  const key=vals;
- if(key===rasterCache.key&&rasterCache.scope===scope&&rasterCache.error===error&&rasterCache.spacing===spacing)return rasterCache;
+ const doSmooth=!error&&(S.source==='ndfd'||S.source==='det');
+ if(key===rasterCache.key&&rasterCache.scope===scope&&rasterCache.error===error&&rasterCache.spacing===spacing&&rasterCache.smooth===doSmooth)return rasterCache;
  let west=Infinity,east=-Infinity,south=Infinity,north=-Infinity;
  for(const p of points){west=Math.min(west,p.lon);east=Math.max(east,p.lon);south=Math.min(south,p.lat);north=Math.max(north,p.lat)}
  const cols=Math.round((east-west)/spacing)+1,rows=Math.round((north-south)/spacing)+1;
  if(cols<1||rows<1||cols*rows>1800000)return null;
  const canvas=document.createElement('canvas');canvas.width=cols;canvas.height=rows;
  const ctx=canvas.getContext('2d'),img=ctx.createImageData(cols,rows),bytes=img.data;
+ const values=new Float32Array(cols*rows),valid=new Uint8Array(cols*rows);
  let n=0;
  for(let i=0;i<points.length;i++){
   const v=vals[i],p=points[i];if(!finite(v)||!scopeNode(p))continue;
   const x=Math.round((p.lon-west)/spacing),y=Math.round((north-p.lat)/spacing);
   if(x<0||x>=cols||y<0||y>=rows)continue;
-  const rgb=colors(v,error).match(/\d+/g);
-  let rgbn;if(rgb?.length>=3)rgbn=rgb.slice(0,3).map(Number);
-  else{const hex=colors(v,error);rgbn=[1,3,5].map(j=>parseInt(hex.slice(j,j+2),16))}
-  const k=(y*cols+x)*4;
-  bytes[k]=rgbn[0];bytes[k+1]=rgbn[1];bytes[k+2]=rgbn[2];bytes[k+3]=255;n++;
+  const k=y*cols+x;values[k]=v;valid[k]=1;n++;
+ }
+ let shown=values;
+ if(doSmooth){
+  // Mask-normalized, spatial Gaussian smoothing of *numeric temperatures*
+  // before color conversion. Alpha-only canvas interpolation alone left
+  // stripe artifacts in the deterministic NDFD/NBM maps.
+  const kernel=[1,4,6,4,1],radius=2;
+  let src=values;
+  for(let pass=0;pass<2;pass++){
+   const next=new Float32Array(src.length);
+   for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+    const idx=y*cols+x;if(!valid[idx])continue;
+    let wsum=0,vsum=0;
+    for(let ky=-radius;ky<=radius;ky++){
+     const yy=y+ky;if(yy<0||yy>=rows)continue;
+     for(let kx=-radius;kx<=radius;kx++){
+      const xx=x+kx;if(xx<0||xx>=cols)continue;
+      const at=yy*cols+xx;if(!valid[at])continue;
+      const weight=kernel[ky+radius]*kernel[kx+radius];
+      wsum+=weight;vsum+=src[at]*weight;
+     }
+    }
+    next[idx]=wsum?vsum/wsum:src[idx];
+   }
+   src=next;
+  }
+  shown=src;
+ }
+ for(let k=0;k<shown.length;k++){
+  if(!valid[k])continue;
+  const rgb=colors(shown[k],error).match(/\d+/g);
+  const rgbn=rgb?.length>=3?rgb.slice(0,3).map(Number):
+    [1,3,5].map(j=>parseInt(colors(shown[k],error).slice(j,j+2),16));
+  const o=k*4;bytes[o]=rgbn[0];bytes[o+1]=rgbn[1];bytes[o+2]=rgbn[2];bytes[o+3]=255;
  }
  ctx.putImageData(img,0,0);
- rasterCache={key,scope,error,canvas,n,west,east,south,north,spacing};
+ rasterCache={key,scope,error,smooth:doSmooth,canvas,n,west,east,south,north,spacing};
  return rasterCache;
 }
 let mapRender=null;
