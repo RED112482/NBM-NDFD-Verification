@@ -375,6 +375,19 @@ def extrema_metadata_valid(meta, product, expected_valid=None):
     return True, None
 
 
+def grib_extrema_window(meta):
+    """Compute actual UTC interval from GRIB reference plus statistical steps."""
+    try:
+        date=str(int(meta["dataDate"])).zfill(8)
+        time=str(int(meta.get("dataTime", 0))).zfill(4)
+        origin=datetime.strptime(date+time[-4:], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+        start=float(meta["startStep"])
+        end=float(meta["endStep"])
+        return origin+timedelta(hours=start),origin+timedelta(hours=end)
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
 def field_candidates(lines, product):
     token = ":TMIN:" if product == "mint" else ":TMAX:"
     return [i for i, line in enumerate(lines) if token in line.upper()]
@@ -410,6 +423,16 @@ def read_nbm_field(init_dt, valid_dt, product):
             try:
                 msg = fetch_idx_message(NBM_BUCKET, core, lines, i)
                 valid, why = extrema_metadata_valid(msg[3], product, valid_dt)
+                window=grib_extrema_window(msg[3])
+                expected_start=valid_dt-timedelta(hours=12)
+                if valid and (not window or window!=(expected_start,valid_dt)):
+                    valid=False
+                    why="Actual GRIB window does not match 00/12Z 12h extrema: "+str(window)
+                if valid:
+                    origin=grib_extrema_window(msg[3])
+                    if meta_valid(msg[3])!=valid_dt or origin[1]!=valid_dt:
+                        valid=False
+                        why="GRIB valid endpoint differs"
                 if not valid:
                     print("NBM rejected", core, why, flush=True)
                     continue
