@@ -298,7 +298,7 @@ def run():
     latest_maxt=now.date() if now.hour>=3 else now.date()-timedelta(days=1)
     history={
       "schemaVersion":1,"generatedUtc":iso(now),"office":WFO,
-      "points":points,"bounds":base["bounds"],"boundaries":{},
+      "points":points,"bounds":base["bounds"],"sampleSpacingDegrees":base.get("sampleSpacingDegrees",.075),"boundaries":{},
       "leads":list(LEADS),"days":{"mint":{},"maxt":{}},
       "errors":[],"method":{
           "nbm":"Operational pairing: 00Z NDFD reference -> preceding 13Z NBM, 12Z NDFD reference -> preceding 01Z NBM. Actual NBM forecast age = NDFD lead + 11h.",
