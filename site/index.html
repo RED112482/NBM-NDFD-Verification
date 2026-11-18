@@ -609,7 +609,7 @@ function update(){
  active('chartmode',S.chartmode);active('metric',S.metric);active('mapmode',S.mapmode);
  $('lead').value=String(S.lead);
  $('leadValue').textContent='−'+S.lead+'h';
- $('leadIssued').textContent=currentSlot()?.ndfdReferenceUtc?'Snapshot '+UTC(currentSlot().ndfdReferenceUtc).slice(0,16):'selected lead';
+ $('leadIssued').textContent=currentSlot()?.ndfdReferenceUtc?'Cutoff '+UTC(currentSlot().ndfdReferenceUtc).slice(0,16):'selected lead';
  document.querySelectorAll('#dateStrip [data-date]').forEach(b=>b.classList.toggle('active',b.dataset.date===S.date));
  const layer=selectedLayer(),slot=currentSlot(),truth=analysisFor(currentRecord(),S.source);
  let errors=[];
@@ -677,8 +677,12 @@ mc.addEventListener('pointermove',e=>{
   const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source);
   const fv=field?.values?.[best],av=truth?.values?.[best];
   const fmt=v=>finite(v)?v.toFixed(1)+'°F':'n/a';
-  t.textContent=(S.mapmode==='analysis'?'ANALYSIS VIEW | ':'')+sourceName()+' '+fmt(fv)+' | '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
-    ' '+fmt(av)+' | Forecast−analysis '+(finite(fv)&&finite(av)?((fv-av)>=0?'+':'')+(fv-av).toFixed(1)+'°F':'n/a');
+  const analysisName=S.analysisSource==='analysis'?'URMA':'RTMA';
+  t.textContent=S.mapmode==='analysis'?
+   analysisName+' '+(isQmd(S.source)?18:12)+'h analyzed '+(S.product==='mint'?'MinT':'MaxT')+': '+fmt(av)+
+     ' | '+sourceName()+' forecast: '+fmt(fv):
+   sourceName()+' '+fmt(fv)+' | '+analysisName+' '+fmt(av)+
+    ' | Forecast−analysis '+(finite(fv)&&finite(av)?((fv-av)>=0?'+':'')+(fv-av).toFixed(1)+'°F':'n/a');
  }else t.style.display='none';
 });
 mc.addEventListener('pointerleave',()=>{$('mapTooltip').style.display='none'});
