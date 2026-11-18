@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial import cKDTree
 from eccodes import codes_get, codes_get_array, codes_grib_new_from_file, codes_release
+import grib2io  # NOAA MDL decoder; required to correctly interpret NDFD scanning/bitmap
 from build_guidance import (DATA, NBM_BUCKET, WFO, PERCENTILES, safe_float,
                             s3, idx_lines, nbm_key, fetch_idx_message, meta_valid,
                             object_exists, read_nbm_field, stats, layer_payload,
@@ -174,48 +175,62 @@ def ndfd_keys_before(reference, product):
 
 
 def decode_grib_file(raw, wanted_dt, namehint):
-    """Use ecCodes message framing, never split on a potentially interior 7777."""
+    """Decode NDFD values and locations with NOAA-MDL grib2io.
+
+    The archived November 14, 2026 GRIB showed a 14.94 F difference at
+    Evergreen between ecCodes and grib2io, despite identical grid coordinates.
+    This method *does not adjust data*: it uses NOAA's recommended decoder
+    for the existing raw packed GRIB values. ecCodes reads metadata only.
+    """
     fd,path=tempfile.mkstemp(suffix=".grib2")
     os.close(fd)
     Path(path).write_bytes(raw)
     grids=[]
     try:
-        with open(path,"rb") as fh:
-            while True:
+        with open(path,"rb") as fh, grib2io.open(path) as messages:
+            for msg in messages:
                 gid=codes_grib_new_from_file(fh)
-                if gid is None:break
+                if gid is None:
+                    raise RuntimeError("GRIB2 message count differs between decoders")
                 try:
                     meta={}
                     for key in ("shortName","name","units","stepType","stepRange",
                                 "percentileValue","validityDate","validityTime",
                                 "dataDate","dataTime","forecastTime","startStep","endStep",
                                 "typeOfLevel","level","productDefinitionTemplateNumber"):
-                        try: meta[key]=codes_get(gid,key)
-                        except Exception: pass
-                    if meta_valid(meta) != wanted_dt: continue
+                        try:meta[key]=codes_get(gid,key)
+                        except Exception:pass
+                    if meta_valid(meta)!=wanted_dt:continue
                     short=str(meta.get("shortName") or "").lower()
                     name=str(meta.get("name") or "").lower()
                     if not (namehint in short or
                             ("minimum" in name if namehint=="tmin" else "maximum" in name)):
                         continue
-                    product = "mint" if namehint == "tmin" else "maxt"
-                    valid, reason = extrema_metadata_valid(meta, product, wanted_dt)
-                    exact_window=(wanted_dt-timedelta(hours=12),wanted_dt)
+                    product="mint" if namehint=="tmin" else "maxt"
+                    valid,reason=extrema_metadata_valid(meta,product,wanted_dt)
+                    expected=(wanted_dt-timedelta(hours=12),wanted_dt)
                     window=grib_extrema_window(meta)
-                    if valid and window!=exact_window:
+                    if valid and window!=expected:
                         valid=False
-                        reason="actual GRIB extrema window "+str(window)+" is not "+str(exact_window)
+                        reason=f"actual GRIB window {window} != {expected}"
                     if not valid:
-                        print("Rejected NDFD archived field:", reason, flush=True)
+                        print("Rejected NDFD archived field:",reason,flush=True)
                         continue
-                    vals=np.asarray(codes_get_array(gid,"values"),dtype=float)
-                    lats=np.asarray(codes_get_array(gid,"latitudes"),dtype=float)
-                    lons=np.asarray(codes_get_array(gid,"longitudes"),dtype=float)
+                    # Reading the paired values and coordinates directly from
+                    # grib2io also handles irregular scan patterns and bitmaps.
+                    data=np.ma.asarray(msg.data,dtype=float)
+                    vals=np.asarray(np.ma.filled(data,np.nan),dtype=float).ravel()
+                    lat2d,lon2d=msg.latlons()
+                    lats=np.asarray(lat2d,dtype=float).ravel()
+                    lons=np.asarray(lon2d,dtype=float).ravel()
+                    if not (len(vals)==len(lats)==len(lons)):
+                        raise RuntimeError("grib2io data/coordinate length mismatch")
                     units=str(meta.get("units") or "")
                     if units=="K" or "kelvin" in units.lower():
                         vals=(vals-273.15)*9/5+32
                     vals=np.where(np.isfinite(vals)&(vals>-120)&(vals<160),vals,np.nan)
                     lons=np.where(lons>180,lons-360,lons)
+                    meta["decoder"]="NOAA-MDL grib2io"
                     grids.append((vals,lats,lons,meta))
                 finally:
                     codes_release(gid)
