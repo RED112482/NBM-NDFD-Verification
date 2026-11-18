@@ -1,0 +1,84 @@
+name: Independent archived NDFD decoder comparison (read-only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-ndfd-decoder.yml"
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install separate GRIB decoders
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy boto3 eccodes grib2io
+      - name: Compare NOAA NDFD raw MinT archive by independent decoders
+        run: |
+          python - <<'PY'
+          import tempfile, pathlib
+          import boto3, numpy as np
+          import grib2io
+          from botocore import UNSIGNED
+          from botocore.config import Config
+          from eccodes import codes_grib_new_from_file, codes_get_array, codes_get, codes_release
+
+          key="wmo/mint/2026/11/14/YHUZ98_KWBN_202611142346"
+          s3=boto3.client("s3",region_name="us-east-1",config=Config(signature_version=UNSIGNED))
+          with tempfile.TemporaryDirectory() as d:
+              file=pathlib.Path(d)/"mint.grb2"
+              s3.download_file("noaa-ndfd-pds",key,str(file))
+              print("SOURCE",key,"BYTES",file.stat().st_size,flush=True)
+              cities={"Mobile":(30.6954,-88.0399),"Evergreen":(31.4335,-86.9569),
+                      "Waynesboro":(31.6749,-88.6462),"Pensacola":(30.4213,-87.2169)}
+              def sample(vals,lats,lons):
+                  arr=np.asarray(vals,dtype=float).ravel()
+                  la=np.asarray(lats,dtype=float).ravel()
+                  lo=np.asarray(lons,dtype=float).ravel()
+                  lo=np.where(lo>180,lo-360,lo)
+                  found={}
+                  for city,(lat,lon) in cities.items():
+                      d=(la-lat)**2+((lo-lon)*.86)**2
+                      idx=int(np.nanargmin(d))
+                      value=float(arr[idx])
+                      if value>180: value=(value-273.15)*1.8+32
+                      found[city]={"F":round(value,2),"lat":round(float(la[idx]),4),
+                                   "lon":round(float(lo[idx]),4),
+                                   "distanceDeg":round(float(np.sqrt(d[idx])),5)}
+                  return found
+              original=[]
+              with open(file,"rb") as f:
+                  while True:
+                      g=codes_grib_new_from_file(f)
+                      if g is None:break
+                      try:
+                          date=str(codes_get(g,"validityDate"))
+                          time=str(codes_get(g,"validityTime"))
+                          cells=sample(codes_get_array(g,"values"),
+                                       codes_get_array(g,"latitudes"),
+                                       codes_get_array(g,"longitudes"))
+                          original.append((date,time,cells))
+                      finally:codes_release(g)
+              alternate=[]
+              with grib2io.open(str(file)) as records:
+                  for msg in records:
+                      lat,lon=msg.latlons()
+                      cells=sample(msg.data,lat,lon)
+                      alternate.append(cells)
+              print("ECCODES MESSAGES",len(original),"GRIB2IO MESSAGES",len(alternate))
+              for i in range(min(len(original),len(alternate))):
+                  print("MESSAGE",i,"ECCODES VALID",original[i][0],original[i][1])
+                  for city in cities:
+                      x=original[i][2][city];y=alternate[i][city]
+                      print(city,"eccodes",x,"grib2io",y,
+                            "DELTA_F",round(x["F"]-y["F"],2),flush=True)
+              if not original or not alternate:
+                  raise SystemExit("Could not decode both sources")
+              print("COMPARISON COMPLETE - no production files touched")
+          PY
