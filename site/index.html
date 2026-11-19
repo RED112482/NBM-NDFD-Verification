@@ -227,29 +227,87 @@ function displayMetric(day,lead,src,metric){
 }
 function scopeNode(p){return S.scope==='land'?p.land:S.scope==='marine'?p.marine:!!(p.land||p.marine)}
 function active(group,value){document.querySelectorAll('[data-'+group+']').forEach(e=>e.classList.toggle('active',e.dataset[group]===String(value)))}
-function selDates(){
+// Valid 00Z MaxT represents the previous calendar day's highs.
+// Valid 12Z MinT represents the same calendar morning's lows.
+// Use a consistent *forecast-day* key when changing weather elements.
+function forecastDayKey(validUtc,product=S.product){
+ if(!validUtc)return null;
+ const dt=new Date(validUtc);
+ if(Number.isNaN(dt.getTime()))return null;
+ if(product==='maxt')dt.setUTCDate(dt.getUTCDate()-1);
+ return dt.toISOString().slice(0,10);
+}
+function forecastDayLabel(validUtc,product=S.product){
+ const day=forecastDayKey(validUtc,product);
+ return day?new Date(day+'T12:00:00Z').toLocaleDateString('en-US',{
+  timeZone:'UTC',weekday:'long',month:'short',day:'numeric'
+ }):'—';
+}
+function dateOptionLabel(validUtc,product=S.product){
+ return forecastDayLabel(validUtc,product)+
+  ' · ('+new Date(validUtc).toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'})+
+  ' '+new Date(validUtc).toISOString().slice(11,16)+'Z '+(product==='mint'?'MinT':'MaxT')+')';
+}
+function selDates(preferredForecastDay=null){
  let dates=Object.keys(currentDays()||{}).sort().reverse();
  if(!dates.length)dates=Object.keys(S.current?.products?.[S.product]||{}).sort().reverse();
- const el=$('date');const old=S.date;
- el.innerHTML='';
- for(const d of dates){const op=document.createElement('option');op.value=d;op.textContent=UTC(d);el.append(op)}
- const analyzed=dates.find(k=>currentDays()?.[k]?.analysis||currentDays()?.[k]?.rtma);S.date=dates.includes(old)?old:(analyzed||dates[0]||null);el.value=S.date||'';
- const strip=$('dateStrip');strip.innerHTML='';
- for(const d of dates){const dt=new Date(d),btn=document.createElement('button');btn.dataset.date=d;
- btn.innerHTML=dt.toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'})+
- '<small>Valid '+UTC(d).slice(11,16)+'Z · '+S.product.toUpperCase()+'</small>';
- btn.addEventListener('click',()=>{S.date=d;el.value=d;update()});strip.append(btn)}
-
+ const el=$('date'),old=S.date;
+ el.replaceChildren();
+ for(const d of dates){
+  const op=document.createElement('option');op.value=d;
+  op.textContent=dateOptionLabel(d);el.append(op);
+ }
+ const matched=preferredForecastDay?dates.find(d=>forecastDayKey(d)===preferredForecastDay):null;
+ const analyzed=dates.find(k=>currentDays()?.[k]?.analysis||currentDays()?.[k]?.rtma);
+ // Keep the calendar forecast day when switching MinT/MaxT, even though
+ // the GRIB valid endpoint shifts from 12Z to 00Z on the next UTC day.
+ S.date=matched||(dates.includes(old)?old:null)||(analyzed||dates[0]||null);
+ el.value=S.date||'';
+ const strip=$('dateStrip');strip.replaceChildren();
+ for(const d of dates){
+  const btn=document.createElement('button');btn.dataset.date=d;
+  btn.append(document.createTextNode(forecastDayLabel(d)));
+  const sub=document.createElement('small');
+  sub.textContent='('+new Date(d).toLocaleDateString('en-US',{
+   timeZone:'UTC',weekday:'short',month:'short',day:'numeric'
+  })+' '+d.slice(11,16)+'Z '+(S.product==='mint'?'MinT':'MaxT')+')';
+  btn.append(sub);
+  btn.addEventListener('click',()=>{S.date=d;el.value=d;update()});
+  strip.append(btn);
+ }
 }
 const TEMP_STOPS=[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[60,'#ffe149'],[70,'#ff9700'],[80,'#f52525'],[90,'#740026'],[100,'#ff9b9b'],[110,'#ffffff']];
-const BIAS_STOPS=[[-20,'#000000'],[-12,'#ffffff'],[-8,'#00ffff'],[-4,'#1769ff'],[0,'#000000'],[4,'#ff1717'],[8,'#ee00e9'],[12,'#ffffff'],[20,'#000000']];
+const BIAS_STOPS=[[-12,'#ffffff'],[-8,'#00ffff'],[-4,'#1769ff'],[0,'#000000'],[4,'#ff1717'],[8,'#ee00e9'],[12,'#ffffff']];
 function renderScale(error){
- const stops=error?BIAS_STOPS:TEMP_STOPS;
+ const ramp=$('scaleRamp'),ticks=$('scaleTicks');
+ ramp.replaceChildren();ticks.replaceChildren();
  $('scaleTitle').textContent=error?'Forecast − selected analysis · °F':'Temperature · °F';
- $('scaleCaption').textContent=error?'Δ °F: 0 black · −4 blue (too cold) · +4 red (too warm)':'20–110°F · 10° steps';
- const ramp=$('scaleRamp'),ticks=$('scaleTicks');ramp.innerHTML='';ticks.innerHTML='';
- for(let i=0;i<180;i++){const v=(error?-20:20)+(error?40:90)*(i+.5)/180,el=document.createElement('span');el.style.background=gradient(v,stops);ramp.append(el)}
- for(let v=error?-20:20;v<=(error?20:110);v+=error?2:10){const el=document.createElement('span');el.textContent=String(v);ticks.append(el)}
+ $('scaleCaption').textContent=error?
+  'Black = 0°F · Blue = −4°F (too cold) · Red = +4°F (too warm)':
+  '20–110°F · 10° steps';
+ if(error){
+  // Unlike the old 180 flex children (which could visually shift the
+  // black midpoint), this is a single continuous CSS gradient with a
+  // hard numerical anchor at 50.000% = 0°F.
+  ramp.style.background='linear-gradient(to right, '+BIAS_STOPS.map(
+   ([v,c])=>c+' '+((v+12)/24*100).toFixed(6)+'%'
+  ).join(', ')+')';
+  ramp.style.position='relative';
+  // Thin central guide aligns with the black 0°F pixel and tick.
+  for(const v of [-12,-8,-4,0,4,8,12]){
+   const el=document.createElement('span');el.textContent=String(v);
+   ticks.append(el);
+  }
+ }else{
+  ramp.style.background='';
+  for(let i=0;i<180;i++){
+   const v=20+90*(i+.5)/180,el=document.createElement('span');
+   el.style.background=gradient(v,TEMP_STOPS);ramp.append(el);
+  }
+  for(let v=20;v<=110;v+=10){
+   const el=document.createElement('span');el.textContent=String(v);ticks.append(el);
+  }
+ }
 }
 function colors(v,isError){
  if(isError)return gradient(v,BIAS_STOPS)
@@ -714,9 +772,9 @@ function update(){
  $('alert').textContent=errors.join('\n');
  populateStats();populateRawAudit();populateLeadAudit();renderMap();renderGraph();
 }
-function changeProduct(x){S.product=x;selDates();update()}
+function changeProduct(x){const day=forecastDayKey(S.date,S.product);S.product=x;selDates(day);update()}
 function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
-evt('[data-prod]','prod',x=>{S.product=x;selDates()});
+evt('[data-prod]','prod',x=>{const day=forecastDayKey(S.date,S.product);S.product=x;selDates(day)});
 evt('[data-scope]','scope',x=>S.scope=x);
 evt('[data-source]','source',x=>S.source=x);
 evt('[data-analysis]','analysis',x=>S.analysisSource=x);
