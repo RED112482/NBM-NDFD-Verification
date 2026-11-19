@@ -242,11 +242,11 @@ function selDates(){
 
 }
 const TEMP_STOPS=[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[60,'#ffe149'],[70,'#ff9700'],[80,'#f52525'],[90,'#740026'],[100,'#ff9b9b'],[110,'#ffffff']];
-const BIAS_STOPS=[[-20,'#000000'],[-10,'#ffffff'],[-5,'#00ffff'],[-2,'#1769ff'],[0,'#000000'],[2,'#ff1717'],[5,'#ee00e9'],[10,'#ffffff'],[20,'#000000']];
+const BIAS_STOPS=[[-20,'#000000'],[-12,'#ffffff'],[-8,'#00ffff'],[-4,'#1769ff'],[0,'#000000'],[4,'#ff1717'],[8,'#ee00e9'],[12,'#ffffff'],[20,'#000000']];
 function renderScale(error){
  const stops=error?BIAS_STOPS:TEMP_STOPS;
  $('scaleTitle').textContent=error?'Forecast − selected analysis · °F':'Temperature · °F';
- $('scaleCaption').textContent=error?'Δ °F: − colder forecast, + warmer forecast':'20–110°F · 10° steps';
+ $('scaleCaption').textContent=error?'Δ °F: 0 black · −4 blue (too cold) · +4 red (too warm)':'20–110°F · 10° steps';
  const ramp=$('scaleRamp'),ticks=$('scaleTicks');ramp.innerHTML='';ticks.innerHTML='';
  for(let i=0;i<180;i++){const v=(error?-20:20)+(error?40:90)*(i+.5)/180,el=document.createElement('span');el.style.background=gradient(v,stops);ramp.append(el)}
  for(let v=error?-20:20;v<=(error?20:110);v+=error?2:10){const el=document.createElement('span');el.textContent=String(v);ticks.append(el)}
