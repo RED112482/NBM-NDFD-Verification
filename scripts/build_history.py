@@ -37,7 +37,7 @@ NDFD_BUCKET = "noaa-ndfd-pds"
 URMA_BUCKET = "noaa-urma-pds"
 RTMA_BUCKET = "noaa-rtma-pds"
 LEADS = (12, 24, 36, 48, 60)
-HISTORY_DAYS = int(os.environ.get("HISTORY_DAYS", "3"))
+HISTORY_DAYS = int(os.environ.get("HISTORY_DAYS", "7"))
 ANALYSIS_HOURS = (12, 18)  # validate each forecast against its native window; all hourly samples required
 MAX_ARCHIVE_OBJECTS = 24
 _ndfd_listing = {}
@@ -472,7 +472,7 @@ def run():
                 slot["verificationSource"] = truth_source
                 # Collect independently inspectable raw point samples.
                 # These are original unsmoothed GRIB samples, NOT bias maps.
-                cities=(("Mobile",30.6954,-88.0399),
+                cities=(("Mobile Airport",30.691417,-88.242833),
                         ("Pensacola",30.4213,-87.2169),
                         ("Evergreen",31.4335,-86.9569),
                         ("Waynesboro",31.6749,-88.6462),
