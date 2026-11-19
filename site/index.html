@@ -485,7 +485,8 @@ function renderMap(){
  $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+
  (analysisOnly?(S.analysisSource==='analysis'?'URMA':'RTMA')+' analysis ('+(isQmd(S.source)?18:12)+'h)':
  sourceName()+(error?' − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):''));
- $('mapMeta').textContent='VALID '+(displayed?.meta?.validUtc?UTC(displayed.meta.validUtc):(S.date?UTC(S.date):'—'))+
+ $('mapMeta').textContent='FORECAST DAY '+forecastDayLabel(S.date).toUpperCase()+
+ ' · VALID '+(displayed?.meta?.validUtc?UTC(displayed.meta.validUtc):(S.date?UTC(S.date):'—'))+
  (analysisOnly?' · Actual hourly-derived '+(isQmd(S.source)?18:12)+'h extrema':' · Historical snapshot −'+S.lead+'h')+
  ' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
  renderScale(error);
@@ -530,7 +531,7 @@ function renderGraph(rebuildRanking=true){
  const days=currentDays(),sources=['ndfd','det','10','25','50','75','90'];
  const dates=S.chartmode==='daily'?Object.keys(days||{}).sort():[S.date,S.date,S.date,S.date,S.date];
  const leads=S.chartmode==='daily'?dates.map(()=>S.lead):[60,48,36,24,12];
- const labels=S.chartmode==='daily'?dates.map(k=>k?.slice(5,10)||'—'):leads.map(n=>'−'+n+'h');
+ const labels=S.chartmode==='daily'?dates.map(k=>forecastDayKey(k)?.slice(5)||'—'):leads.map(n=>'−'+n+'h');
  const series=sources.map(src=>({
   src,values:dates.map((date,i)=>{
    const day=days?.[date],field=layerFor(day,leads[i],src);
