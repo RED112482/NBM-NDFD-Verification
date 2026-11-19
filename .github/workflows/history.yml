@@ -53,6 +53,7 @@ jobs:
           assert p["office"]=="MOB"
           assert len(p["points"])>100
           assert len(p["days"]["mint"])>=7
+          assert len(p["days"]["maxt"])>=7
           for day,block in p["days"]["mint"].items():
               for lead in ("12","24","36","48","60"):
                   assert lead in block["leads"], (day,lead)
