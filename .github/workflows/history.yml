@@ -24,7 +24,7 @@ concurrency:
 jobs:
   history:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +40,7 @@ jobs:
           pip install grib2io --config-settings=cmake.define.GRIB2IO_WITH_IP=OFF
       - name: Generate actual historical grids from NOAA Open Data
         env:
-          HISTORY_DAYS: "5"
+          HISTORY_DAYS: "7"
           DEBUG_QMD: "0"
         run: python -u scripts/build_history.py
       - name: Validate history and provenance
@@ -52,7 +52,7 @@ jobs:
           assert p["schemaVersion"]==1
           assert p["office"]=="MOB"
           assert len(p["points"])>100
-          assert len(p["days"]["mint"])>=5
+          assert len(p["days"]["mint"])>=7
           for day,block in p["days"]["mint"].items():
               for lead in ("12","24","36","48","60"):
                   assert lead in block["leads"], (day,lead)
@@ -60,7 +60,7 @@ jobs:
           print("NBM deterministic available:",
                 sum(bool(x["nbm"]["det"]) for entries in p["days"].values()
                     for day in entries.values() for x in day["leads"].values()))
-          assert len(p.get("audit", [])) >= 50, "Expected 5 days x 5 leads x 2 elements"
+          assert len(p.get("audit", [])) >= 70, "Expected 7 days x 5 leads x 2 elements"
           from datetime import datetime, timedelta
           problems=[]
           for row in p["audit"]:
@@ -109,7 +109,7 @@ jobs:
                       for pct,layer in slot["nbm"].get("percentiles",{}).items():
                           assert layer["meta"].get("periodHours")==18, (product,valid_key,pct)
           print("Validated distinct analysis extrema windows:",validated)
-          print("Validated five-day metadata audit:", len(p["audit"]), "records")
+          print("Validated seven-day metadata audit:", len(p["audit"]), "records")
 
           PY
       - name: Commit updated historical guidance
