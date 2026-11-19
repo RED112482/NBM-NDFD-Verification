@@ -277,7 +277,7 @@ function traceGeo(g,geom,project){
  eachRing(geom,ring=>{if(!ring.length)return;g.moveTo(...project(ring[0][0],ring[0][1]));for(let i=1;i<ring.length;i++)g.lineTo(...project(ring[i][0],ring[i][1]));g.closePath()});
 }
 const CITIES=[
- ['Mobile',30.6954,-88.0399,1],['Pensacola',30.4213,-87.2169,1],['Pascagoula',30.3658,-88.5561,1],
+ ['Mobile Airport',30.691417,-88.242833,1],['Pensacola',30.4213,-87.2169,1],['Pascagoula',30.3658,-88.5561,1],
  ['Gulf Shores',30.2460,-87.7008,1],['Hattiesburg',31.3271,-89.2903,1],['Evergreen',31.4335,-86.9569,1],
  ['Waynesboro',31.6749,-88.6462,1],['Fort Walton Beach',30.4058,-86.6188,1],
  ['Bay Minette',30.8829,-87.7731,0],['Fairhope',30.5229,-87.9033,0],['Daphne',30.6035,-87.9036,0],
