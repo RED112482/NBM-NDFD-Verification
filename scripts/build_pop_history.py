@@ -61,7 +61,7 @@ def ndfd_keys(day, family):
             result.append((ts,key))
     return tuple(sorted(result,reverse=True))
 
-@lru_cache(maxsize=90)
+@lru_cache(maxsize=2)
 def ndfd_decoded(key):
     raw=s3.get_object(Bucket=NDFD_BUCKET,Key=key)["Body"].read()
     result=[]
@@ -126,7 +126,7 @@ def nbm_pop(init,valid,points):
             print("NBM pop12 decode",key,type(exc).__name__,str(exc)[:160],flush=True)
     return None
 
-@lru_cache(maxsize=90)
+@lru_cache(maxsize=2)
 def qpe_raw(valid):
     ds=valid.strftime("%Y%m%d")
     key=f"urma2p5.{ds}/urma2p5.{ds}{valid:%H}.pcp_06h.wexp.grb2"
