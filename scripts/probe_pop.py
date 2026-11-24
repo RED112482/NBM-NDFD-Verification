@@ -28,3 +28,14 @@ for family in ('core','nbp','qmd'):
    key=f'blend.{date}/{cycle}/{family}/blend.t{cycle}z.{family}.f{lead}.co.grib2'
    if family=='qmd' and lead!='023':continue
    print('NBM_IDX',key,json.dumps(index('noaa-nbm-grib2-pds',key)))
+
+for init in ('2026112313','2026112301'):
+ for lead in (23,35,47,59):
+  key=f'blend.{init[:8]}/{init[8:]}/core/blend.t{init[8:]}z.core.f{lead:03d}.co.grib2'
+  try:
+   lines=s3.get_object(Bucket='noaa-nbm-grib2-pds',Key=key+'.idx')['Body'].read().decode().splitlines()
+   matches=[line for line in lines if ':POP:' in line.upper() or '0.01 INCH' in line.upper() or ':APCP:' in line.upper() or ':PROB:' in line.upper()]
+   print('CORE_POP_CANDIDATES',key,json.dumps(matches[:24]),flush=True)
+  except Exception as e:print('CORE_POP_ERROR',key,str(e),flush=True)
+for base in ('blend.20261123/13/','blend.20261123/12/','blend.20261123/00/','blend.20261123/01/'):
+ print('NBM_FAMILIES',base,json.dumps(listing('noaa-nbm-grib2-pds',base,14)),flush=True)
