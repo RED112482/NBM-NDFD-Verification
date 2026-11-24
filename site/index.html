@@ -877,6 +877,39 @@ function populateRawAudit(){
  }
 }
 function populateStats(){
+ if(S.product==='pop'){
+  const layer=selectedLayer(),truth=analysisFor(currentRecord()),pair=comparison(currentRecord(),S.lead,S.source);
+  const field=S.mapmode==='analysis'?truth:layer;
+  const metric=field?.stats?.[S.scope],verification=pair?.stats?.[S.scope]||null;
+  const put=(id,val,suffix='')=>$(id).textContent=val==null||!finite(Number(val))?'—':String(typeof val==='number'?Math.round(val*100)/100:val)+suffix;
+  put('mean',metric?.mean,'%');put('min',metric?.min,'%');put('max',metric?.max,'%');put('n',metric?.n);
+  put('mae',verification?.mae,'pp');put('bias',verification?.bias,'pp');
+  $('truth').textContent=truth?'URMA 6h + 6h':'Pending';
+  $('period').textContent='12h PoP';
+  $('popMetrics').style.display='grid';
+  put('brier',verification?.brier);
+  put('pod',verification?.pod==null?null:verification.pod*100,'%');
+  put('far',verification?.far==null?null:verification.far*100,'%');
+  put('csi',verification?.csi==null?null:verification.csi*100,'%');
+  $('hitMiss').textContent=verification?verification.hits+' / '+verification.misses:'—';
+  put('falseAlarms',verification?.falseAlarms);
+  const valid=S.date?UTC(S.date):'—',slot=currentSlot(),status=currentRecord()?.analysisStatus;
+  $('details').textContent=[
+    'PoP12: probability of measurable precipitation ≥0.01 inch at a point during the full 12h interval',
+    'Valid endpoint '+valid,
+    'Period '+(new Date(S.date).getUTCHours()===12?'00–12Z (overnight)':'12–00Z (daytime)'),
+    'Analysis: two complete 6h URMA precipitation fields combined without inventing missing QPE',
+    truth?'URMA blocks '+truth.meta.qpeKeys.join(' + '):
+     'URMA QPE pending or unavailable'+(status?.missing6hEndUtc?' at '+UTC(status.missing6hEndUtc):''),
+    'Forecast cutoff '+(slot?.ndfdReferenceUtc?UTC(slot.ndfdReferenceUtc):'—'),
+    'NBM cycle '+(slot?.nbmCycleUtc?UTC(slot.nbmCycleUtc):'—'),
+    'Brier = mean((PoP probability − 0/1 observed event)²), lower is better',
+    'POD/FAR/CSI use ≥50% PoP as the yes/no forecast threshold',
+    'Missing fields are never treated as no precipitation'
+   ].join(' • ');
+  return;
+ }
+ $('popMetrics').style.display='none';
  const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source),pair=comparison(currentRecord(),S.lead,S.source);
  const display=S.mapmode==='analysis'?truth:field;
  const stat=display?.stats?.[S.scope],err=pair?.stats?.[S.scope],scope=S.scope;
@@ -904,6 +937,29 @@ function populateStats(){
  ].filter(Boolean).join('  •  ');
 }
 function update(){
+ const pop=S.product==='pop';
+ if(pop){S.analysisSource='analysis';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ document.querySelectorAll('[data-source]').forEach(b=>{
+  const isPct=!['ndfd','det'].includes(b.dataset.source);
+  b.style.display=pop&&isPct?'none':'';
+  b.disabled=pop&&isPct;
+ });
+ const rtmaBtn=document.querySelector('[data-analysis="rtma"]');
+ if(rtmaBtn){rtmaBtn.disabled=pop;rtmaBtn.style.display=pop?'none':''}
+ const anal18=$('showAnalysis18');
+ anal18.closest('label').style.display=pop?'none':'';
+ document.querySelectorAll('.spot-audit').forEach(el=>el.style.display=pop?'none':'');
+ $('popMetrics').style.display=pop?'grid':'none';
+ for(const [key,label] of [['mean',pop?'Mean PoP / observed coverage':'Mean °F'],
+  ['mae',pop?'MAE · percentage points':'MAE °F'],['bias',pop?'Bias · percentage points':'Bias °F']]){
+  const button=document.querySelector('[data-metric="'+key+'"]');if(button)button.textContent=label;
+ }
+ const metricsLabel={mean:pop?'MEAN POP / COVERAGE':'AREA MEAN',min:pop?'MIN PoP / OBS':'AREA MIN',
+  max:pop?'MAX PoP / OBS':'AREA MAX',mae:pop?'MAE (PP) vs observed':'MAE vs analysis',
+  bias:pop?'BIAS (PP) vs observed':'BIAS vs analysis'};
+ for(const [id,name] of Object.entries(metricsLabel)){
+  const title=$(id)?.previousElementSibling;if(title)title.textContent=name;
+ }
  active('prod',S.product);active('scope',S.scope);active('source',S.source);active('analysis',S.analysisSource);
  active('chartmode',S.chartmode);active('metric',S.metric);active('mapmode',S.mapmode);
  $('lead').value=String(S.lead);
@@ -913,13 +969,16 @@ function update(){
  $('showAnalysis12').checked=S.showAnalysis12;$('showAnalysis18').checked=S.showAnalysis18;
  const layer=selectedLayer(),slot=currentSlot(),truth=analysisFor(currentRecord(),S.source);
  let errors=[];
- if(!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
+ if(pop&&!S.popHistory)errors.push('PoP12 archive has not been published yet. The new PoP12 build may still be running.');
+ if(!pop&&!S.history)errors.push('Historical forecast archive not published yet; currently displaying forward guidance where available.');
  if(!layer&&S.mapmode!=='analysis')errors.push(sourceName()+' is not available for this valid date and selected lead. No synthetic values are plotted.');
- if(S.mapmode==='analysis'&&!truth)errors.push('No complete '+(isQmd(S.source)?18:12)+'h '+(S.analysisSource==='analysis'?'URMA':'RTMA')+' analysis available for this date.');
+ if(S.mapmode==='analysis'&&!truth)errors.push(pop?
+  'The two complete 6h URMA QPE blocks have not both arrived for this 12h period.':
+  'No complete '+(isQmd(S.source)?18:12)+'h '+(S.analysisSource==='analysis'?'URMA':'RTMA')+' analysis available for this date.');
  if(S.mapmode==='error'&&!comparison(currentRecord(),S.lead,S.source)?.values)errors.push('Forecast − selected analysis is unavailable for this date/lead.');
  if(S.metric!=='mean'&&!truth)errors.push('MAE and bias need the selected period-matched URMA or RTMA analysis.');
  const pair=comparison(currentRecord(),S.lead,S.source);
- $('comparisonText').textContent='Δ°F = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
+ $('comparisonText').textContent=pop?'PoP12: probability forecast vs URMA observed ≥0.01 inch in 12h': 'Δ°F = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
   ' · '+(pair?pair.periodHours+'h period matched':'Period match not verified / missing analysis');
  if(!pair&&layer&&currentRecord()&&S.mapmode==='error')errors.push('Period-matched analysis unavailable or GRIB window failed verification. No error/ranking is shown for this source.');
  const valid=S.date?new Date(S.date):null,reference=slot?.ndfdReferenceUtc?new Date(slot.ndfdReferenceUtc):null;
@@ -934,11 +993,17 @@ function update(){
   ' → '+(slot?.expectedWindowEndUtc?utcFmt(new Date(slot.expectedWindowEndUtc)):'—')+
   '  |  Cutoff selects newest archived NDFD available by that time (not necessarily exactly at cutoff).';
  $('alert').textContent=errors.join('\n');
- populateStats();populateRawAudit();populateLeadAudit();renderMap();renderGraph();
+ populateStats();if(!pop){populateRawAudit();populateLeadAudit()}renderMap();renderGraph();
 }
-function changeProduct(x){const day=forecastDayKey(S.date,S.product);S.product=x;selDates(day);update()}
+function changeProduct(x){const day=forecastDayKey(S.date,S.product);S.product=x;
+ if(x==='pop'){S.analysisSource='analysis';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ selDates(day);update()}
 function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
-evt('[data-prod]','prod',x=>{const day=forecastDayKey(S.date,S.product);S.product=x;selDates(day)});
+evt('[data-prod]','prod',x=>{
+ const day=forecastDayKey(S.date,S.product);S.product=x;
+ if(x==='pop'){S.analysisSource='analysis';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ selDates(day);
+});
 evt('[data-scope]','scope',x=>S.scope=x);
 evt('[data-source]','source',x=>S.source=x);
 evt('[data-analysis]','analysis',x=>S.analysisSource=x);
