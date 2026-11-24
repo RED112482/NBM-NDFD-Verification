@@ -45,3 +45,15 @@ for cycle,lead in (("12",42),("06",48),("00",54)):
            any(f"{p}% level" in row for p in (10,25,50,75,90))]
   print("LATEST_MAXT_QMD",key,"matches",len(matches),matches[:8],flush=True)
  except Exception as exc:print("LATEST_MAXT_QMD",key,"error",repr(exc),flush=True)
+
+# Run the exact existing production QMD selector for Monday Nov23 MaxT.
+from build_guidance import read_nbm_field
+init=datetime(2026,11,23,1,tzinfo=timezone.utc)
+v=datetime(2026,11,24,0,tzinfo=timezone.utc)
+try:
+ layer=read_nbm_field(init,v,"maxt")
+ print("ACTUAL_MAXT_SELECTOR",{"valid":iso(v),"init":iso(init),
+  "qmdCycle":layer.get("qmdCycleUtc") if layer else None,
+  "percentiles":sorted(layer["percentiles"]) if layer else [],
+  "hasDet":bool(layer.get("det")) if layer else False},flush=True)
+except Exception as exc:print("ACTUAL_MAXT_SELECTOR ERROR",repr(exc),flush=True)
