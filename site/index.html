@@ -1023,9 +1023,12 @@ gc.addEventListener('pointermove',e=>{
  const tip=$('graphTooltip'),rect=gc.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;
  const h=graphHits.reduce((best,q)=>{const d=(q.x-x)**2+(q.y-y)**2;return d<(best?.d??Infinity)?{q,d}:best},null);
  if(!h||h.d>225){tip.style.display='none';return}
- const q=h.q,score=q.analysis?' · Reference (not ranked)':finite(q.mae)?' · '+q.periodHours+'h grid MAE '+q.mae.toFixed(1)+'°F':' · No period-matched analysis';
- tip.textContent=(q.analysis?q.periodHours+'h URMA/RTMA analysis':srcTitle(q.src))+' | Valid '+(q.date?UTC(q.date):'—')+
- ' | −'+q.lead+'h | '+q.metric.toUpperCase()+' '+q.value.toFixed(1)+'°F | '+q.tier+score;
+ const q=h.q,score=q.analysis?' · Reference (not ranked)':
+ S.product==='pop'?(finite(q.mae)?' · Brier '+q.mae.toFixed(4):' · QPE not yet verified'):
+ finite(q.mae)?' · '+q.periodHours+'h grid MAE '+q.mae.toFixed(1)+'°F':' · No period-matched analysis';
+ tip.textContent=(q.analysis?(S.product==='pop'?'URMA observed precipitation coverage':q.periodHours+'h URMA/RTMA analysis'):srcTitle(q.src))+' | Valid '+(q.date?UTC(q.date):'—')+
+ ' | −'+q.lead+'h | '+q.metric.toUpperCase()+' '+q.value.toFixed(1)+
+ (S.product==='pop'?(q.metric==='bias'?'pp':'%'):'°F')+' | '+q.tier+score;
  tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-275,x+12))+'px';
  tip.style.top=Math.max(4,y-52)+'px';
 });
@@ -1045,6 +1048,17 @@ mc.addEventListener('pointermove',e=>{
   t.style.display='block';t.style.left=Math.min(rect.width-240,x+12)+'px';t.style.top=Math.max(2,y-40)+'px';
   const field=selectedLayer(),truth=analysisFor(currentRecord(),S.source);
   const fv=field?.values?.[best],av=truth?.values?.[best];
+  if(S.product==='pop'){
+   const qpe=truth?.qpeInches?.[best],qpeText=finite(qpe)?qpe.toFixed(3)+' in':'unavailable';
+   const fmt=v=>finite(v)?v.toFixed(1)+'%':'unavailable';
+   t.textContent=S.mapmode==='analysis'?
+     'URMA 12h: '+(finite(av)?(av>=50?'YES':'NO'):'unavailable')+
+     ' · QPE '+qpeText:
+     sourceName()+' '+fmt(fv)+' · URMA '+(finite(av)?av>=50?'YES':'NO':'pending')+
+     ' · QPE '+qpeText+
+     ' · PoP−event '+(finite(fv)&&finite(av)?((fv-av)>0?'+':'')+(fv-av).toFixed(1)+'pp':'n/a');
+   return;
+  }
   const fmt=v=>finite(v)?v.toFixed(1)+'°F':'n/a';
   const analysisName=S.analysisSource==='analysis'?'URMA':'RTMA';
   t.textContent=S.mapmode==='analysis'?
@@ -1060,12 +1074,15 @@ mc.addEventListener('dblclick',()=>{S.center=null;S.zoom=1;renderMap()});
 window.addEventListener('resize',()=>{renderMap();renderGraph()});
 async function fetchData(path){const r=await fetch(path+'?v='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error(path+' HTTP '+r.status);return r.json()}
 (async()=>{
- const out=await Promise.allSettled([fetchData('data/guidance.json'),fetchData('data/history.json')]);
+ const out=await Promise.allSettled([fetchData('data/guidance.json'),fetchData('data/history.json'),fetchData('data/pop_history.json')]);
  if(out[0].status==='fulfilled')S.current=out[0].value;
  if(out[1].status==='fulfilled'&&out[1].value?.days)S.history=out[1].value;
+ if(out[2].status==='fulfilled'&&out[2].value?.product==='pop'&&out[2].value?.days)S.popHistory=out[2].value;
  if(!S.history&&!S.current){$('status').textContent='No data published';$('alert').textContent='Could not load either NOAA dataset. Check the latest GitHub Actions build.';renderMap();return}
  const data=S.history||S.current;
- $('status').textContent=(S.history?'Historical archive ready':'Forward-only fallback')+' · '+data.points.length+' NOAA grid samples · updated '+UTC(data.generatedUtc);
+ $('status').textContent=(S.history?'Temperature history '+UTC(S.history.generatedUtc):'Forward-only temperature data')+
+ (S.popHistory?' · PoP12 '+UTC(S.popHistory.generatedUtc):' · PoP12 archive pending')+
+ ' · '+data.points.length+' NOAA grid samples';
  selDates();update();
 })();
 </script></body></html>
