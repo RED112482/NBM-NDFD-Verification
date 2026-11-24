@@ -916,7 +916,9 @@ function populateStats(){
   const metric=field?.stats?.[S.scope],verification=pair?.stats?.[S.scope]||null;
   const put=(id,val,suffix='')=>$(id).textContent=val==null||!finite(Number(val))?'—':String(typeof val==='number'?Math.round(val*100)/100:val)+suffix;
   put('mean',metric?.mean,'%');put('min',metric?.min,'%');put('max',metric?.max,'%');put('n',metric?.n);
-  put('mae',verification?.brier);put('bias',verification?.observedFrequency,'%');
+  const otherSrc=S.source==='ndfd'?'det':'ndfd';
+  const otherBrier=layerFor(currentRecord(),S.lead,otherSrc)?.verification?.[S.scope]?.brier;
+  put('mae',verification?.brier);put('bias',otherBrier);
   $('truth').textContent=truth?'URMA 6h + 6h':'Pending';
   $('period').textContent='12h PoP';
   $('popMetrics').style.display='grid';
@@ -979,7 +981,13 @@ function update(){
   b.style.display=pop&&isPct?'none':'';
   b.disabled=pop&&isPct;
  });
+ for(const metric of ['mean','mae','bias']){
+   const el=document.querySelector('[data-metric="'+metric+'"]');
+   if(el)el.style.display=pop?'none':'';
+ }
  const brierBtn=document.querySelector('[data-metric="brier"]');if(brierBtn)brierBtn.style.display=pop?'':'none';
+ const errorButton=document.querySelector('[data-mapmode="error"]');
+ if(errorButton)errorButton.textContent=pop?'Brier score vs URMA':'Forecast − Analysis';
  if(pop&&S.metric!=='brier')S.metric='brier';if(!pop&&S.metric==='brier')S.metric='mean';
  const rtmaBtn=document.querySelector('[data-analysis="rtma"]');
  if(rtmaBtn){rtmaBtn.disabled=pop;rtmaBtn.style.display=pop?'none':''}
@@ -994,7 +1002,7 @@ function update(){
  }
  const metricsLabel={mean:pop?'FORECAST PoP / URMA COVERAGE':'AREA MEAN',min:pop?'MIN FORECAST PoP':'AREA MIN',
   max:pop?'MAX FORECAST PoP':'AREA MAX',mae:pop?'BRIER SCORE vs URMA (↓)':'MAE vs analysis',
-  bias:pop?'URMA OBSERVED WET AREA':'BIAS vs analysis'};
+  bias:pop?'OTHER GUIDANCE BRIER (↓)':'BIAS vs analysis'};
  for(const [id,name] of Object.entries(metricsLabel)){
   const title=$(id)?.previousElementSibling;if(title)title.textContent=name;
  }
@@ -1045,13 +1053,13 @@ function update(){
  populateStats();if(!pop){populateRawAudit();populateLeadAudit()}renderMap();renderGraph();
 }
 function changeProduct(x){const day=forecastDayKey(S.date,S.product);S.product=x;
- if(x==='pop'){S.analysisSource='analysis';S.metric='brier';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ if(x==='pop'){S.analysisSource='analysis';S.metric='brier';S.mapmode='error';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
  else if(S.metric==='brier')S.metric='mean';
  selDates(day);update()}
 function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
 evt('[data-prod]','prod',x=>{
  const day=forecastDayKey(S.date,S.product);S.product=x;
- if(x==='pop'){S.analysisSource='analysis';S.metric='brier';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ if(x==='pop'){S.analysisSource='analysis';S.metric='brier';S.mapmode='error';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
  else if(S.metric==='brier')S.metric='mean';
  selDates(day);
 });
