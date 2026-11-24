@@ -91,7 +91,7 @@ select{width:100%;max-width:100%}
 <header><div><h1>NBM/NDFD Verification Explorer <span style="font-size:11px;color:#8eddf9">R5</span></h1>
 <div class="subtitle">WFO Mobile/Pensacola · Archived forecast cycles · MinT / MaxT · No map API or key</div></div><div id="status">Loading NOAA guidance…</div></header>
 <div class="panel controls">
-  <div class="field"><label>Element</label><div class="segment"><button data-prod="mint" class="active">MinT</button><button data-prod="maxt">MaxT</button><button data-prod="pop">PoP12</button></div></div>
+  <div class="field"><label>Element</label><div class="segment"><button data-prod="mint" class="active">MinT</button><button data-prod="maxt">MaxT</button><button data-prod="pop" style="flex-basis:100%">PoP12</button></div></div>
   <div class="field"><label>Verifying / valid date (UTC)</label><select id="date"></select></div>
   <div class="field"><label>NDFD snapshot lead · <span id="leadIssued">—</span></label><div class="lead-picker"><button id="leadBack">−</button><input id="lead" type="range" min="12" max="60" step="12" value="12" aria-label="NDFD snapshot lead hours"><button id="leadNext">+</button><strong id="leadValue">−12h</strong></div></div>
   <div class="field"><label>Geographic sample</label><div class="segment"><button data-scope="land" class="active">Land</button><button data-scope="marine">Marine</button><button data-scope="both">Both</button></div></div>
