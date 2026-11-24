@@ -302,6 +302,21 @@ const TEMP_STOPS=[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[6
 const BIAS_STOPS=[[-12,'#ffffff'],[-8,'#00ffff'],[-4,'#1769ff'],[0,'#000000'],[4,'#ff1717'],[8,'#ee00e9'],[12,'#ffffff']];
 function renderScale(error){
  const ramp=$('scaleRamp'),ticks=$('scaleTicks');
+ if(S.product==='pop'){
+  ramp.replaceChildren();ticks.replaceChildren();
+  const stops=error?POP_ERROR_STOPS:POP_STOPS;
+  const min=error?-100:0,max=100;
+  $('scaleTitle').textContent=error?'PoP − observed event · percentage points':'Probability of precipitation · %';
+  $('scaleCaption').textContent=error?
+   'Negative: probability under-predicted event · Positive: forecast rain that did not occur':
+   '0–100% · Observed event means ≥0.01 inch in 12h';
+  ramp.style.background='linear-gradient(to right, '+stops.map(([v,c])=>
+   c+' '+((v-min)/(max-min)*100).toFixed(4)+'%').join(', ')+')';
+  for(let v=min;v<=max;v+=error?20:10){
+   const el=document.createElement('span');el.textContent=String(v);ticks.append(el);
+  }
+  return;
+ }
  ramp.replaceChildren();ticks.replaceChildren();
  $('scaleTitle').textContent=error?'Forecast − selected analysis · °F':'Temperature · °F';
  $('scaleCaption').textContent=error?
@@ -385,7 +400,11 @@ function drawCities(g,V,points,vals,w,h,errorMode=false){
      if(d<dmin){dmin=d;best=i}
    }
    if(best<0||dmin>.065)continue;
-   const v=Math.round(vals[best]);const label=name+' '+(errorMode?'Δ '+(v>0?'+':'')+v+'°':v+'°');
+   const v=Math.round(vals[best]);
+   const label=S.product==='pop'?
+    name+' '+(S.mapmode==='analysis'?(v>=50?'YES':'NO'):
+      errorMode?'Δ '+(v>0?'+':'')+v+'pp':v+'%'):
+    name+' '+(errorMode?'Δ '+(v>0?'+':'')+v+'°':v+'°');
    const fs=major?12:10;g.font=(major?'700 ':'600 ')+fs+'px Poppins';
    const textW=g.measureText(label).width;
    const lx=x+7,ly=y-15,rect=[lx-4,ly-9,textW+8,18];
@@ -402,7 +421,7 @@ function drawCities(g,V,points,vals,w,h,errorMode=false){
 let rasterCache={key:null,canvas:null,n:0};
 function smoothRaster(points,vals,spacing,scope,error){
  const key=vals;
- const doSmooth=error||S.source==='ndfd'||S.source==='det';
+ const doSmooth=S.product!=='pop'&&(error||S.source==='ndfd'||S.source==='det');
  if(key===rasterCache.key&&rasterCache.scope===scope&&rasterCache.error===error&&rasterCache.spacing===spacing&&rasterCache.smooth===doSmooth)return rasterCache;
  let west=Infinity,east=-Infinity,south=Infinity,north=-Infinity;
  for(const p of points){west=Math.min(west,p.lon);east=Math.max(east,p.lon);south=Math.min(south,p.lat);north=Math.max(north,p.lat)}
@@ -460,7 +479,7 @@ let mapRender=null;
 function renderMap(){
  const canvas=$('mapCanvas'),{g,w,h}=prepareCanvas(canvas);
  g.fillStyle='#071723';g.fillRect(0,0,w,h);
- const data=S.history||S.current;
+ const data=S.product==='pop'?S.popHistory:(S.history||S.current);
  if(!data?.points?.length){g.fillStyle='#bdd8e8';g.fillText('No NOAA grid data available',30,40);return}
  const V=view(data.bounds,w,h),points=data.points,layer=selectedLayer();
  const error=S.mapmode==='error',analysisOnly=S.mapmode==='analysis';
@@ -503,14 +522,15 @@ function renderMap(){
  }
  drawCities(g,V,points,vals,w,h,error);
  g.fillStyle='#c8e4f5';g.font='10px Poppins';
- g.fillText(analysisOnly?'WFO MOB · Hourly-derived NOAA analysis extrema':'WFO MOB · NOAA gridded forecast',12,h-12);
+ g.fillText(S.product==='pop'?'WFO MOB · 12h PoP / two 6h URMA QPE blocks':
+  analysisOnly?'WFO MOB · Hourly-derived NOAA analysis extrema':'WFO MOB · NOAA gridded forecast',12,h-12);
  mapRender={V,points,vals,canvas,n};
- $('mapTitle').textContent=(S.product==='mint'?'MinT':'MaxT')+' • '+
- (analysisOnly?(S.analysisSource==='analysis'?'URMA':'RTMA')+' analysis ('+(isQmd(S.source)?18:12)+'h)':
+ $('mapTitle').textContent=(S.product==='mint'?'MinT':S.product==='pop'?'PoP12':'MaxT')+' • '+
+ (analysisOnly?(S.analysisSource==='analysis'?'URMA':'RTMA')+(S.product==='pop'?' QPE: Yes/No':' analysis ('+(isQmd(S.source)?18:12)+'h)'):
  sourceName()+(error?' − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):''));
  $('mapMeta').textContent='FORECAST DAY '+forecastDayLabel(S.date).toUpperCase()+
  ' · VALID '+(displayed?.meta?.validUtc?UTC(displayed.meta.validUtc):(S.date?UTC(S.date):'—'))+
- (analysisOnly?' · Actual hourly-derived '+(isQmd(S.source)?18:12)+'h extrema':' · Historical snapshot −'+S.lead+'h')+
+ (analysisOnly?(S.product==='pop'?' · Observed ≥0.01 inch in 12h':' · Actual hourly-derived '+(isQmd(S.source)?18:12)+'h extrema'):' · Historical snapshot −'+S.lead+'h')+
  ' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
  renderScale(error);
 }
