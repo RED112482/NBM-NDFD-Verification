@@ -550,7 +550,7 @@ function graphLine(g,arr,project,color){
  for(let i=0;i<arr.length;i++)if(finite(arr[i])){const [x,y]=project(i,arr[i]);g.beginPath();g.arc(x,y,3.5,0,Math.PI*2);g.fill()}
 }
 let graphHits=[];
-const srcTitle=src=>src==='ndfd'?'NDFD':src==='det'?'NBM deterministic':'NBM P'+src;
+const srcTitle=src=>src==='ndfd'?'NDFD':src==='det'?(S.product==='pop'?'NBM PoP12':'NBM deterministic'):'NBM P'+src;
 const focusedGuidance=()=>S.hoverGuidance||S.lockedGuidance;
 function refreshRankingFocus(){
  const chosen=focusedGuidance();
@@ -977,6 +977,15 @@ function update(){
   'No complete '+(isQmd(S.source)?18:12)+'h '+(S.analysisSource==='analysis'?'URMA':'RTMA')+' analysis available for this date.');
  if(S.mapmode==='error'&&!comparison(currentRecord(),S.lead,S.source)?.values)errors.push('Forecast − selected analysis is unavailable for this date/lead.');
  if(S.metric!=='mean'&&!truth)errors.push('MAE and bias need the selected period-matched URMA or RTMA analysis.');
+ if(!pop&&S.analysisSource==='analysis'&&!truth&&currentRecord()?.rtma){
+  errors.push('Selected URMA window is still incomplete in this archive; RTMA is already available. Select RTMA to verify now.');
+ }
+ if(!pop&&['mint','maxt'].includes(S.product)&&currentRecord()&&
+    !Object.keys(slot?.nbm?.percentiles||{}).length){
+  errors.push('No archived NBM QMD percentile grids for this snapshot. Expected QMD cycle: '+
+   (slot?.nbm?.qmdCycleUtc?UTC(slot.nbm.qmdCycleUtc):'not listed')+
+   '. Deterministic NBM and NDFD are still displayed; nothing has been estimated.');
+ }
  const pair=comparison(currentRecord(),S.lead,S.source);
  $('comparisonText').textContent=pop?'PoP12: probability forecast vs URMA observed ≥0.01 inch in 12h': 'Δ°F = '+sourceName()+' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')+
   ' · '+(pair?pair.periodHours+'h period matched':'Period match not verified / missing analysis');
@@ -991,7 +1000,8 @@ function update(){
   '  |  NBM cycle: '+(slot?.nbmCycleUtc?utcFmt(new Date(slot.nbmCycleUtc)):'unavailable')+
   '  |  12h extrema window: '+(slot?.expectedWindowStartUtc?utcFmt(new Date(slot.expectedWindowStartUtc)):'—')+
   ' → '+(slot?.expectedWindowEndUtc?utcFmt(new Date(slot.expectedWindowEndUtc)):'—')+
-  '  |  Cutoff selects newest archived NDFD available by that time (not necessarily exactly at cutoff).';
+  (pop?'  |  URMA QPE 6h + 6h; 12h measurable-precip threshold 0.01 in':
+   '  |  Cutoff selects newest archived NDFD available by that time (not necessarily exactly at cutoff).');
  $('alert').textContent=errors.join('\n');
  populateStats();if(!pop){populateRawAudit();populateLeadAudit()}renderMap();renderGraph();
 }
