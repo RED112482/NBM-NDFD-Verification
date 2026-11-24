@@ -130,7 +130,7 @@ select{width:100%;max-width:100%}
  <div class="top"><div><h2 id="graphTitle">Forecast Evolution</h2><div class="meta">All series are matched to the same valid date/time</div></div></div>
  <div class="graph-options">
  <div class="segment"><button data-chartmode="lead" class="active">Single date · Multiple leads</button><button data-chartmode="daily">Multiple dates · Fixed lead</button></div>
- <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button></div>
+ <div class="segment"><button data-metric="mean" class="active">Mean °F</button><button data-metric="mae">MAE °F</button><button data-metric="bias">Bias °F</button><button data-metric="brier" style="display:none">Brier score</button></div>
 <div class="analysis-graph-toggles"><label title="Toggle the white dashed 12-hour URMA/RTMA verifying analysis mean"><input id="showAnalysis12" type="checkbox" checked><span class="ref-swatch ref-12"></span>12h analysis</label><label title="Toggle the cyan dashed 18-hour URMA/RTMA verifying analysis mean"><input id="showAnalysis18" type="checkbox" checked><span class="ref-swatch ref-18"></span>18h analysis</label></div>
 </div>
  <div class="map-and-ranks"><div class="surface"><canvas id="graphCanvas"></canvas><div id="graphTooltip"></div></div>
@@ -150,6 +150,7 @@ select{width:100%;max-width:100%}
  <div class="metric"><small>ANALYSIS AVAILABLE</small><strong id="truth">—</strong></div>
  <div class="metric"><small>GRIB PERIOD</small><strong id="period">—</strong></div>
  </div>
+ <div class="panel" id="popComparison" style="display:none;margin-top:10px"><h2>PoP12 • Brier score against URMA</h2><div class="note" id="popComparisonSummary"></div><div id="popLeadScores"></div></div>
  <div class="metrics" id="popMetrics" style="display:none;margin-top:10px">
  <div class="metric"><small>BRIER SCORE ↓</small><strong id="brier">—</strong></div>
  <div class="metric"><small>POD (≥50% PoP)</small><strong id="pod">—</strong></div>
@@ -201,7 +202,7 @@ function comparison(day,lead,src){
  const field=layerFor(day,lead,src),truth=analysisFor(day,src);
  if(!field?.values||!truth?.values||field.values.length!==truth.values.length)return null;
  if(S.product==='pop'){
-  const values=field.values.map((v,i)=>finite(v)&&finite(truth.values[i])?v-truth.values[i]:null);
+  const values=field.values.map((v,i)=>finite(v)&&finite(truth.values[i])?Math.pow(v/100-truth.values[i]/100,2):null);
   // Server supplies probability scores from original pointwise forecast/yes-no pairs.
   const stats=field.verification||{};
   return {values,stats,periodHours:12,forecast:field,truth};
@@ -297,7 +298,7 @@ function selDates(preferredForecastDay=null){
  }
 }
 const POP_STOPS=[[0,'#081322'],[10,'#173974'],[30,'#087ac4'],[50,'#2bd5c5'],[70,'#ffe35a'],[90,'#ff862e'],[100,'#fa314b']];
-const POP_ERROR_STOPS=[[-100,'#ffffff'],[-50,'#148fff'],[-20,'#1047dc'],[0,'#000000'],[20,'#f32929'],[50,'#f36b1e'],[100,'#ffffff']];
+const POP_ERROR_STOPS=[[0,'#123c37'],[.05,'#22a88f'],[.15,'#b8df54'],[.3,'#ffe261'],[.5,'#ff9c32'],[.75,'#f44e42'],[1,'#b3164b']];
 const TEMP_STOPS=[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[60,'#ffe149'],[70,'#ff9700'],[80,'#f52525'],[90,'#740026'],[100,'#ff9b9b'],[110,'#ffffff']];
 const BIAS_STOPS=[[-12,'#ffffff'],[-8,'#00ffff'],[-4,'#1769ff'],[0,'#000000'],[4,'#ff1717'],[8,'#ee00e9'],[12,'#ffffff']];
 function renderScale(error){
@@ -305,15 +306,16 @@ function renderScale(error){
  if(S.product==='pop'){
   ramp.replaceChildren();ticks.replaceChildren();
   const stops=error?POP_ERROR_STOPS:POP_STOPS;
-  const min=error?-100:0,max=100;
-  $('scaleTitle').textContent=error?'PoP − observed event · percentage points':'Probability of precipitation · %';
+  const min=0,max=error?1:100;
+  $('scaleTitle').textContent=error?'Brier error at each grid point (0–1)':'Probability of precipitation · %';
   $('scaleCaption').textContent=error?
-   'Negative: probability under-predicted event · Positive: forecast rain that did not occur':
+   '0 = perfect · 1 = worst · (PoP/100 − observed 0/1)² against URMA':
    '0–100% · Observed event means ≥0.01 inch in 12h';
   ramp.style.background='linear-gradient(to right, '+stops.map(([v,c])=>
    c+' '+((v-min)/(max-min)*100).toFixed(4)+'%').join(', ')+')';
-  for(let v=min;v<=max;v+=error?20:10){
-   const el=document.createElement('span');el.textContent=String(v);ticks.append(el);
+  for(let i=0;i<=10;i++){
+   const v=error?i/10:i*10,el=document.createElement('span');
+   el.textContent=error?v.toFixed(1):String(v);ticks.append(el);
   }
   return;
  }
@@ -403,7 +405,7 @@ function drawCities(g,V,points,vals,w,h,errorMode=false){
    const v=Math.round(vals[best]);
    const label=S.product==='pop'?
     name+' '+(S.mapmode==='analysis'?(v>=50?'YES':'NO'):
-      errorMode?'Δ '+(v>0?'+':'')+v+'pp':v+'%'):
+      errorMode?'BS '+vals[best].toFixed(2):v+'%'):
     name+' '+(errorMode?'Δ '+(v>0?'+':'')+v+'°':v+'°');
    const fs=major?12:10;g.font=(major?'700 ':'600 ')+fs+'px Poppins';
    const textW=g.measureText(label).width;
@@ -527,11 +529,11 @@ function renderMap(){
  mapRender={V,points,vals,canvas,n};
  $('mapTitle').textContent=(S.product==='mint'?'MinT':S.product==='pop'?'PoP12':'MaxT')+' • '+
  (analysisOnly?(S.analysisSource==='analysis'?'URMA':'RTMA')+(S.product==='pop'?' QPE: Yes/No':' analysis ('+(isQmd(S.source)?18:12)+'h)'):
- sourceName()+(error?' − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):''));
+ sourceName()+(error?(S.product==='pop'?' · Brier error vs URMA':' − '+(S.analysisSource==='analysis'?'URMA':'RTMA')):''));
  $('mapMeta').textContent='FORECAST DAY '+forecastDayLabel(S.date).toUpperCase()+
  ' · VALID '+(displayed?.meta?.validUtc?UTC(displayed.meta.validUtc):(S.date?UTC(S.date):'—'))+
  (analysisOnly?(S.product==='pop'?' · Observed ≥0.01 inch in 12h':' · Actual hourly-derived '+(isQmd(S.source)?18:12)+'h extrema'):' · Historical snapshot −'+S.lead+'h')+
- ' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
+ ' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?(S.product==='pop'?' · Point Brier vs URMA':' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA')):'');
  renderScale(error);
 }
 function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM '+(S.product==='pop'?'PoP12':'Deterministic'):'NBM P'+S.source}
@@ -621,8 +623,8 @@ function renderPopGraph(rebuildRanking=true){
   if(!qualified.length)rankBox.textContent='PoP12 forecast or verifying QPE is not yet available for this selection.';
  }
  refreshRankingFocus();
- const analysis=S.showAnalysis12&&S.metric==='mean'?
-  dates.map(date=>days[date]?.analysis?.stats?.[S.scope]?.mean??null):null;
+ // URMA is the verifying binary truth, never a competing skill line.
+ const analysis=null;
  const available=series.flatMap(row=>row.values.filter(finite)).concat(analysis?analysis.filter(finite):[]);
  if(!available.length){
   g.font='13px Poppins';g.fillStyle='#b8d8ec';
@@ -631,14 +633,16 @@ function renderPopGraph(rebuildRanking=true){
  }
  const pad={l:53,r:16,t:39,b:44},pw=Math.max(6,w-pad.l-pad.r),ph=Math.max(6,h-pad.t-pad.b);
  const smallest=Math.min(...available),largest=Math.max(...available),span=Math.max(5,largest-smallest);
- const low=S.metric==='mean'?0:Math.max(S.metric==='mae'?0:-100,smallest-span*.15);
- const high=S.metric==='mean'?100:Math.min(100,largest+span*.15);
+ const isBrier=S.metric==='brier';
+ const low=isBrier?0:S.metric==='mean'?0:Math.max(S.metric==='mae'?0:-100,smallest-span*.15);
+ const high=isBrier?Math.max(.1,Math.min(1,Math.ceil(largest*10)/10+.05)):
+  S.metric==='mean'?100:Math.min(100,largest+span*.15);
  const project=(i,v)=>[pad.l+pw*(labels.length<2?.5:i/(labels.length-1)),pad.t+ph*(high-v)/Math.max(1,high-low)];
  g.font='10px Poppins';g.strokeStyle='#2b475f';g.fillStyle='#aac5da';
  for(let k=0;k<=5;k++){
   const val=low+(high-low)*k/5,y=project(0,val)[1];
   g.beginPath();g.moveTo(pad.l,y);g.lineTo(w-pad.r,y);g.stroke();
-  g.fillText(val.toFixed(0),8,y+3);
+  g.fillText(isBrier?val.toFixed(2):val.toFixed(0),8,y+3);
  }
  labels.forEach((label,i)=>{
   if(labels.length>8&&i%2) return;
@@ -684,7 +688,7 @@ function renderPopGraph(rebuildRanking=true){
  }
  $('graphTitle').textContent=S.chartmode==='lead'?'PoP12 • Single period · Multiple forecast leads':
   'PoP12 • Multiple periods · Fixed forecast lead (−'+S.lead+'h)';
- $('graphHint').textContent='PoP12 '+S.metric.toUpperCase()+' · Rank = Brier score · '+qualified.length+' verified sources';
+ $('graphHint').textContent='Brier score against URMA • 0 perfect, 1 worst • Lower is better • '+qualified.length+' verified sources';
  $('graphTooltip').style.display='none';
 }
 function renderGraph(rebuildRanking=true){
@@ -876,6 +880,35 @@ function populateRawAudit(){
   row.append(cell);tbody.append(row);
  }
 }
+function renderPopLeadScores(){
+ const host=$('popLeadScores'),info=$('popComparisonSummary');if(!host||!info)return;
+ host.replaceChildren();
+ const day=currentRecord(),truth=day?.analysis;
+ info.textContent=truth?
+  'URMA is truth: ≥0.01″ in the 12h period = YES. Lower Brier score is better (0 perfect, 1 worst). Same verified period and geographic sample for both forecasts.':
+  'Both six-hour URMA QPE blocks are required. Missing truth is NOT counted as zero.';
+ const table=document.createElement('table');
+ table.style.cssText='width:100%;border-collapse:collapse;font-size:11px;margin-top:8px';
+ const hd=document.createElement('tr');
+ for(const x of ['Lead','NDFD Brier','NBM Brier','Best']){
+  const c=document.createElement('th');c.textContent=x;c.style.padding='7px';hd.append(c);
+ }
+ table.append(hd);
+ for(const lead of [12,24,36,48,60]){
+  const n=layerFor(day,lead,'ndfd')?.verification?.[S.scope]?.brier;
+  const b=layerFor(day,lead,'det')?.verification?.[S.scope]?.brier;
+  const winner=finite(n)&&finite(b)?Math.abs(n-b)<.00001?'Tie':n<b?'NDFD':'NBM':'—';
+  const tr=document.createElement('tr');if(lead===S.lead)tr.style.background='#18364b';
+  for(const value of ['−'+lead+'h',finite(n)?n.toFixed(4):'—',finite(b)?b.toFixed(4):'—',winner]){
+   const td=document.createElement('td');td.textContent=value;
+   td.style.cssText='padding:8px;border-top:1px solid #31516a;text-align:center';
+   tr.append(td);
+  }
+  tr.style.cursor='pointer';tr.title='Select −'+lead+'h snapshot';
+  tr.addEventListener('click',()=>{S.lead=lead;update()});table.append(tr);
+ }
+ host.append(table);
+}
 function populateStats(){
  if(S.product==='pop'){
   const layer=selectedLayer(),truth=analysisFor(currentRecord()),pair=comparison(currentRecord(),S.lead,S.source);
@@ -883,11 +916,12 @@ function populateStats(){
   const metric=field?.stats?.[S.scope],verification=pair?.stats?.[S.scope]||null;
   const put=(id,val,suffix='')=>$(id).textContent=val==null||!finite(Number(val))?'—':String(typeof val==='number'?Math.round(val*100)/100:val)+suffix;
   put('mean',metric?.mean,'%');put('min',metric?.min,'%');put('max',metric?.max,'%');put('n',metric?.n);
-  put('mae',verification?.mae,'pp');put('bias',verification?.bias,'pp');
+  put('mae',verification?.brier);put('bias',verification?.observedFrequency,'%');
   $('truth').textContent=truth?'URMA 6h + 6h':'Pending';
   $('period').textContent='12h PoP';
   $('popMetrics').style.display='grid';
   put('brier',verification?.brier);
+  renderPopLeadScores();
   put('pod',verification?.pod==null?null:verification.pod*100,'%');
   put('far',verification?.far==null?null:verification.far*100,'%');
   put('csi',verification?.csi==null?null:verification.csi*100,'%');
@@ -938,25 +972,29 @@ function populateStats(){
 }
 function update(){
  const pop=S.product==='pop';
+ $('popComparison').style.display=pop?'block':'none';
  if(pop){S.analysisSource='analysis';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
  document.querySelectorAll('[data-source]').forEach(b=>{
   const isPct=!['ndfd','det'].includes(b.dataset.source);
   b.style.display=pop&&isPct?'none':'';
   b.disabled=pop&&isPct;
  });
+ const brierBtn=document.querySelector('[data-metric="brier"]');if(brierBtn)brierBtn.style.display=pop?'':'none';
+ if(pop&&S.metric!=='brier')S.metric='brier';if(!pop&&S.metric==='brier')S.metric='mean';
  const rtmaBtn=document.querySelector('[data-analysis="rtma"]');
  if(rtmaBtn){rtmaBtn.disabled=pop;rtmaBtn.style.display=pop?'none':''}
  const anal18=$('showAnalysis18');
  anal18.closest('label').style.display=pop?'none':'';
+ $('showAnalysis12').closest('label').style.display=pop?'none':'';
  document.querySelectorAll('.spot-audit').forEach(el=>el.style.display=pop?'none':'');
  $('popMetrics').style.display=pop?'grid':'none';
  for(const [key,label] of [['mean',pop?'Mean PoP / observed coverage':'Mean °F'],
   ['mae',pop?'MAE · percentage points':'MAE °F'],['bias',pop?'Bias · percentage points':'Bias °F']]){
   const button=document.querySelector('[data-metric="'+key+'"]');if(button)button.textContent=label;
  }
- const metricsLabel={mean:pop?'MEAN POP / COVERAGE':'AREA MEAN',min:pop?'MIN PoP / OBS':'AREA MIN',
-  max:pop?'MAX PoP / OBS':'AREA MAX',mae:pop?'MAE (PP) vs observed':'MAE vs analysis',
-  bias:pop?'BIAS (PP) vs observed':'BIAS vs analysis'};
+ const metricsLabel={mean:pop?'FORECAST PoP / URMA COVERAGE':'AREA MEAN',min:pop?'MIN FORECAST PoP':'AREA MIN',
+  max:pop?'MAX FORECAST PoP':'AREA MAX',mae:pop?'BRIER SCORE vs URMA (↓)':'MAE vs analysis',
+  bias:pop?'URMA OBSERVED WET AREA':'BIAS vs analysis'};
  for(const [id,name] of Object.entries(metricsLabel)){
   const title=$(id)?.previousElementSibling;if(title)title.textContent=name;
  }
@@ -1007,12 +1045,14 @@ function update(){
  populateStats();if(!pop){populateRawAudit();populateLeadAudit()}renderMap();renderGraph();
 }
 function changeProduct(x){const day=forecastDayKey(S.date,S.product);S.product=x;
- if(x==='pop'){S.analysisSource='analysis';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ if(x==='pop'){S.analysisSource='analysis';S.metric='brier';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ else if(S.metric==='brier')S.metric='mean';
  selDates(day);update()}
 function evt(selector,attr,fn){document.querySelectorAll(selector).forEach(el=>el.addEventListener('click',()=>{fn(el.dataset[attr]);update()}))}
 evt('[data-prod]','prod',x=>{
  const day=forecastDayKey(S.date,S.product);S.product=x;
- if(x==='pop'){S.analysisSource='analysis';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ if(x==='pop'){S.analysisSource='analysis';S.metric='brier';if(!['ndfd','det'].includes(S.source))S.source='ndfd'}
+ else if(S.metric==='brier')S.metric='mean';
  selDates(day);
 });
 evt('[data-scope]','scope',x=>S.scope=x);
@@ -1039,7 +1079,7 @@ gc.addEventListener('pointermove',e=>{
  finite(q.mae)?' · '+q.periodHours+'h grid MAE '+q.mae.toFixed(1)+'°F':' · No period-matched analysis';
  tip.textContent=(q.analysis?(S.product==='pop'?'URMA observed precipitation coverage':q.periodHours+'h URMA/RTMA analysis'):srcTitle(q.src))+' | Valid '+(q.date?UTC(q.date):'—')+
  ' | −'+q.lead+'h | '+q.metric.toUpperCase()+' '+q.value.toFixed(1)+
- (S.product==='pop'?(q.metric==='bias'?'pp':'%'):'°F')+' | '+q.tier+score;
+ (S.product==='pop'?(q.metric==='brier'?'':q.metric==='bias'?'pp':'%'):'°F')+' | '+q.tier+(S.product==='pop'&&q.metric==='brier'?' · lower is better':score);
  tip.style.display='block';tip.style.left=Math.max(4,Math.min(rect.width-275,x+12))+'px';
  tip.style.top=Math.max(4,y-52)+'px';
 });
@@ -1067,7 +1107,7 @@ mc.addEventListener('pointermove',e=>{
      ' · QPE '+qpeText:
      sourceName()+' '+fmt(fv)+' · URMA '+(finite(av)?av>=50?'YES':'NO':'pending')+
      ' · QPE '+qpeText+
-     ' · PoP−event '+(finite(fv)&&finite(av)?((fv-av)>0?'+':'')+(fv-av).toFixed(1)+'pp':'n/a');
+     ' · Point Brier '+(finite(fv)&&finite(av)?Math.pow(fv/100-av/100,2).toFixed(4):'n/a');
    return;
   }
   const fmt=v=>finite(v)?v.toFixed(1)+'°F':'n/a';
