@@ -91,7 +91,7 @@ select{width:100%;max-width:100%}
 <header><div><h1>NBM/NDFD Verification Explorer <span style="font-size:11px;color:#8eddf9">R5</span></h1>
 <div class="subtitle">WFO Mobile/Pensacola · Archived forecast cycles · MinT / MaxT · No map API or key</div></div><div id="status">Loading NOAA guidance…</div></header>
 <div class="panel controls">
-  <div class="field"><label>Element</label><div class="segment"><button data-prod="mint" class="active">MinT</button><button data-prod="maxt">MaxT</button></div></div>
+  <div class="field"><label>Element</label><div class="segment"><button data-prod="mint" class="active">MinT</button><button data-prod="maxt">MaxT</button><button data-prod="pop">PoP12</button></div></div>
   <div class="field"><label>Verifying / valid date (UTC)</label><select id="date"></select></div>
   <div class="field"><label>NDFD snapshot lead · <span id="leadIssued">—</span></label><div class="lead-picker"><button id="leadBack">−</button><input id="lead" type="range" min="12" max="60" step="12" value="12" aria-label="NDFD snapshot lead hours"><button id="leadNext">+</button><strong id="leadValue">−12h</strong></div></div>
   <div class="field"><label>Geographic sample</label><div class="segment"><button data-scope="land" class="active">Land</button><button data-scope="marine">Marine</button><button data-scope="both">Both</button></div></div>
@@ -149,6 +149,14 @@ select{width:100%;max-width:100%}
  <div class="metric"><small>BIAS vs analysis</small><strong id="bias">—</strong></div>
  <div class="metric"><small>ANALYSIS AVAILABLE</small><strong id="truth">—</strong></div>
  <div class="metric"><small>GRIB PERIOD</small><strong id="period">—</strong></div>
+ </div>
+ <div class="metrics" id="popMetrics" style="display:none;margin-top:10px">
+ <div class="metric"><small>BRIER SCORE ↓</small><strong id="brier">—</strong></div>
+ <div class="metric"><small>POD (≥50% PoP)</small><strong id="pod">—</strong></div>
+ <div class="metric"><small>FALSE ALARM RATIO</small><strong id="far">—</strong></div>
+ <div class="metric"><small>CSI</small><strong id="csi">—</strong></div>
+ <div class="metric"><small>HITS / MISSES</small><strong id="hitMiss">—</strong></div>
+ <div class="metric"><small>FALSE ALARMS</small><strong id="falseAlarms">—</strong></div>
  </div></div>
  <div class="panel"><h2>Source provenance and forecast-period safeguards</h2>
  <div class="note" id="details">Data loading. Nominal -12/-24/-36/-48/-60h tracks NDFD 00Z/12Z snapshots and their preceding 13Z/01Z NBM guidance. The actual model forecast age is recorded separately. No missing percentile or observation is estimated.</div>
@@ -157,23 +165,25 @@ select{width:100%;max-width:100%}
 </div>
 <script>
 'use strict';
-const S={current:null,history:null,product:'mint',scope:'land',source:'ndfd',analysisSource:'analysis',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',showAnalysis12:true,showAnalysis18:true,lockedGuidance:'ndfd',hoverGuidance:null,zoom:1,center:null};
+const S={current:null,history:null,popHistory:null,product:'mint',scope:'land',source:'ndfd',analysisSource:'analysis',date:null,lead:12,chartmode:'lead',metric:'mean',mapmode:'forecast',showAnalysis12:true,showAnalysis18:true,lockedGuidance:'ndfd',hoverGuidance:null,zoom:1,center:null};
 const C={ndfd:'#ff5359',det:'#62caff','10':'#537fff','25':'#8f8aff','50':'#b5a3fb','75':'#ffb869','90':'#ffd45f'};
 const $=id=>document.getElementById(id),finite=x=>Number.isFinite(x);
 const UTC=s=>new Date(s).toISOString().slice(0,16).replace('T',' ')+'Z';
-function currentDays(){return S.history?.days?.[S.product]||null}
+function currentDays(){return S.product==='pop'?S.popHistory?.days||null:S.history?.days?.[S.product]||null}
 function currentRecord(){return currentDays()?.[S.date]||null}
 function currentSlot(){return currentRecord()?.leads?.[String(S.lead)]||null}
-function currentForward(){return S.current?.products?.[S.product]?.[S.date]||null}
-const isQmd=src=>!['ndfd','det'].includes(src);
+function currentForward(){return S.product==='pop'?null:S.current?.products?.[S.product]?.[S.date]||null}
+const isQmd=src=>S.product!=='pop'&&!['ndfd','det'].includes(src);
 function analysisFor(day=currentRecord(),src=S.source){
  if(!day)return null;
+ if(S.product==='pop')return day.analysis||null;
  const suffix=isQmd(src)?'18':'';
  return S.analysisSource==='analysis'?day['analysis'+suffix]||null:
   day['rtma'+suffix]||null;
 }
 function layerFor(day,lead,src){
  const slot=day?.leads?.[String(lead)];
+ if(S.product==='pop'&&src!=='ndfd'&&src!=='det')return null;
  return src==='ndfd'?slot?.ndfd:src==='det'?slot?.nbm?.det:slot?.nbm?.percentiles?.[src]||null;
 }
 function selectedLayer(slot=currentSlot()){
@@ -190,6 +200,12 @@ function comparison(day,lead,src){
  if(comparisonCache.has(cacheKey))return comparisonCache.get(cacheKey);
  const field=layerFor(day,lead,src),truth=analysisFor(day,src);
  if(!field?.values||!truth?.values||field.values.length!==truth.values.length)return null;
+ if(S.product==='pop'){
+  const values=field.values.map((v,i)=>finite(v)&&finite(truth.values[i])?v-truth.values[i]:null);
+  // Server supplies probability scores from original pointwise forecast/yes-no pairs.
+  const stats=field.verification||{};
+  return {values,stats,periodHours:12,forecast:field,truth};
+ }
  const values=[],by={land:[],marine:[],both:[]};
  const points=S.history?.points||S.current?.points||[];
  for(let i=0;i<field.values.length;i++){
@@ -234,7 +250,7 @@ function forecastDayKey(validUtc,product=S.product){
  if(!validUtc)return null;
  const dt=new Date(validUtc);
  if(Number.isNaN(dt.getTime()))return null;
- if(product==='maxt')dt.setUTCDate(dt.getUTCDate()-1);
+ if(product==='maxt'||product==='pop'&&dt.getUTCHours()===0)dt.setUTCDate(dt.getUTCDate()-1);
  return dt.toISOString().slice(0,10);
 }
 function forecastDayLabel(validUtc,product=S.product){
@@ -244,6 +260,10 @@ function forecastDayLabel(validUtc,product=S.product){
  }):'—';
 }
 function dateOptionLabel(validUtc,product=S.product){
+ if(product==='pop'){
+  const period=new Date(validUtc).getUTCHours()===12?'Overnight (00–12Z)':'Daytime (12–00Z)';
+  return forecastDayLabel(validUtc,product)+' · '+period+' · Valid '+UTC(validUtc);
+ }
  return forecastDayLabel(validUtc,product)+
   ' · ('+new Date(validUtc).toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'})+
   ' '+new Date(validUtc).toISOString().slice(11,16)+'Z '+(product==='mint'?'MinT':'MaxT')+')';
@@ -266,16 +286,18 @@ function selDates(preferredForecastDay=null){
  const strip=$('dateStrip');strip.replaceChildren();
  for(const d of dates){
   const btn=document.createElement('button');btn.dataset.date=d;
-  btn.append(document.createTextNode(forecastDayLabel(d)));
+  btn.append(document.createTextNode(forecastDayLabel(d)+(S.product==='pop'?(new Date(d).getUTCHours()===12?' · Overnight':' · Daytime'):'')));
   const sub=document.createElement('small');
   sub.textContent='('+new Date(d).toLocaleDateString('en-US',{
    timeZone:'UTC',weekday:'short',month:'short',day:'numeric'
-  })+' '+d.slice(11,16)+'Z '+(S.product==='mint'?'MinT':'MaxT')+')';
+  })+' '+d.slice(11,16)+'Z '+(S.product==='mint'?'MinT':S.product==='maxt'?'MaxT':'PoP12')+')';
   btn.append(sub);
   btn.addEventListener('click',()=>{S.date=d;el.value=d;update()});
   strip.append(btn);
  }
 }
+const POP_STOPS=[[0,'#081322'],[10,'#173974'],[30,'#087ac4'],[50,'#2bd5c5'],[70,'#ffe35a'],[90,'#ff862e'],[100,'#fa314b']];
+const POP_ERROR_STOPS=[[-100,'#ffffff'],[-50,'#148fff'],[-20,'#1047dc'],[0,'#000000'],[20,'#f32929'],[50,'#f36b1e'],[100,'#ffffff']];
 const TEMP_STOPS=[[20,'#00ffff'],[30,'#006aff'],[40,'#001c85'],[50,'#8b9097'],[60,'#ffe149'],[70,'#ff9700'],[80,'#f52525'],[90,'#740026'],[100,'#ff9b9b'],[110,'#ffffff']];
 const BIAS_STOPS=[[-12,'#ffffff'],[-8,'#00ffff'],[-4,'#1769ff'],[0,'#000000'],[4,'#ff1717'],[8,'#ee00e9'],[12,'#ffffff']];
 function renderScale(error){
@@ -310,8 +332,9 @@ function renderScale(error){
  }
 }
 function colors(v,isError){
- if(isError)return gradient(v,BIAS_STOPS)
- return gradient(v,TEMP_STOPS)
+ if(S.product==='pop')return gradient(v,isError?POP_ERROR_STOPS:POP_STOPS);
+ if(isError)return gradient(v,BIAS_STOPS);
+ return gradient(v,TEMP_STOPS);
 }
 function gradient(v,stops){if(v<=stops[0][0])return stops[0][1];for(let i=1;i<stops.length;i++)if(v<=stops[i][0]){const [a,ca]=stops[i-1],[b,cb]=stops[i];const t=(v-a)/(b-a);const h=c=>[1,3,5].map(j=>parseInt(c.substring(j,j+2),16));const x=h(ca),y=h(cb);return 'rgb('+x.map((n,j)=>Math.round(n+(y[j]-n)*t)).join(',')+')'}return stops.at(-1)[1]}
 function prepareCanvas(canvas){const rect=canvas.getBoundingClientRect(),ratio=devicePixelRatio||1;const w=Math.max(1,rect.width),h=Math.max(1,rect.height);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);const g=canvas.getContext('2d');g.setTransform(ratio,0,0,ratio,0,0);return {g,w,h}}
@@ -491,7 +514,7 @@ function renderMap(){
  ' · '+S.scope.toUpperCase()+' · '+n+' grid samples'+(error?' · Forecast − '+(S.analysisSource==='analysis'?'URMA':'RTMA'):'');
  renderScale(error);
 }
-function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM Deterministic':'NBM P'+S.source}
+function sourceName(){return S.source==='ndfd'?'Official NDFD':S.source==='det'?'NBM '+(S.product==='pop'?'PoP12':'Deterministic'):'NBM P'+S.source}
 function metricFor(layer,metric){
  if(!layer)return null;
  if(metric==='mean')return layer.stats?.[S.scope]?.mean??null;
