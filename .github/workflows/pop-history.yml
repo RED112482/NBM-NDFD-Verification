@@ -1,0 +1,87 @@
+name: Build historical PoP12 forecast verification
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 14,20,2 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/build_pop_history.py"
+      - ".github/workflows/pop-history.yml"
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: nbm-pop-history
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install NOAA GRIB decoders and analysis dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libg2c-dev
+          pip install -r requirements.txt
+          pip install grib2io --config-settings=cmake.define.GRIB2IO_WITH_IP=OFF
+      - name: Build actual 12h PoP and URMA 6h+6h QPE verification
+        env:
+          HISTORY_DAYS: "7"
+        run: python -u scripts/build_pop_history.py
+      - name: Validate period and source provenance
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("site/data/pop_history.json").read_text())
+          assert p["product"]=="pop"
+          assert p["thresholdInches"]==0.01
+          assert len(p["days"])==14, f"Expected 7 overnight + 7 daytime dates; got {len(p['days'])}"
+          n_source=0
+          for key,day in p["days"].items():
+              assert all(str(l) in day["leads"] for l in (12,24,36,48,60))
+              truth=day.get("analysis")
+              if truth is not None:
+                  assert truth["meta"]["periodHours"]==12
+                  assert len(truth["meta"]["qpeKeys"])==2
+                  assert set(x for x in truth["values"] if x is not None)<={0,100}
+              for slot in day["leads"].values():
+                  for field in (slot["ndfd"],slot["nbm"]["det"]):
+                      if field is None:continue
+                      n_source+=1
+                      assert field["meta"]["periodHours"]==12
+                      assert field["meta"]["validUtc"]==key
+                      assert field["meta"]["actualWindowEndUtc"]==key
+                      assert all(0<=x<=100 for x in field["values"] if x is not None)
+          assert n_source>0, "No genuine PoP12 fields; refusing to publish empty dataset"
+          print("Validated",len(p["days"]),"PoP12 periods,",n_source,"forecast fields")
+          PY
+      - name: Commit true PoP12 history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data/pop_history.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update archived PoP12 NDFD NBM vs URMA precipitation"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
