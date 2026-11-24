@@ -39,3 +39,21 @@ for init in ('2026112313','2026112301'):
   except Exception as e:print('CORE_POP_ERROR',key,str(e),flush=True)
 for base in ('blend.20261123/13/','blend.20261123/12/','blend.20261123/00/','blend.20261123/01/'):
  print('NBM_FAMILIES',base,json.dumps(listing('noaa-nbm-grib2-pds',base,14)),flush=True)
+
+# Diagnose recent MaxT QMD source selection for 2026-11-24 00Z
+for day,cycle,lead in [('20261122','12',42),('20261122','06',48),('20261122','00',54),('20261123','00',30)]:
+ key=f'blend.{day}/{cycle}/qmd/blend.t{cycle}z.qmd.f{lead:03d}.co.grib2'
+ try:
+  lines=s3.get_object(Bucket='noaa-nbm-grib2-pds',Key=key+'.idx')['Body'].read().decode().splitlines()
+  hit=[row for row in lines if ':TMAX:' in row.upper()]
+  print('RECENT_MAXT_QMD',key,json.dumps({'lines':len(lines),'TMAX':hit[:10]}),flush=True)
+ except Exception as e:print('RECENT_MAXT_QMD',key,json.dumps({'error':str(e)}),flush=True)
+for source in ('urma','rtma'):
+ missing=[]
+ for hour in range(13):
+  dt=datetime.datetime(2026,11,23,12,tzinfo=datetime.timezone.utc)+datetime.timedelta(hours=hour)
+  d=dt.strftime('%Y%m%d');h=dt.strftime('%H')
+  key=f'{source}2p5.{d}/{source}2p5.t{h}z.2dvaranl_ndfd.grb2_wexp.idx'
+  try:s3.head_object(Bucket=f'noaa-{source}-pds',Key=key)
+  except Exception:missing.append(key)
+ print('RECENT_MAXT_ANALYSIS_HOURS',source,'missing',json.dumps(missing),flush=True)
