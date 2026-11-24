@@ -33,3 +33,15 @@ for fam in ("Z98","Z97"):
     print("MSG",i,subset,"META_VALID",meta_valid(meta),"WINDOW",grib_extrema_window(meta),
       "WANTED",valid,"MATCH",valid_period(meta,valid,12),
       "VALUES",((float(finite.min()),float(finite.max())) if finite.size else None),flush=True)
+
+# Latest Monday MaxT percentile inventory. TMP, not TMAX, is the correct field!
+from build_guidance import s3,NBM_BUCKET,idx_lines
+for cycle,lead in (("12",42),("06",48),("00",54)):
+ key=f"blend.20261122/{cycle}/qmd/blend.t{cycle}z.qmd.f{lead:03d}.co.grib2"
+ try:
+  rows=idx_lines(NBM_BUCKET,key)
+  matches=[row for row in rows if ":TMP:" in row.upper() and
+           " HOUR MAX FCST:" in row.upper() and
+           any(f"{p}% level" in row for p in (10,25,50,75,90))]
+  print("LATEST_MAXT_QMD",key,"matches",len(matches),matches[:8],flush=True)
+ except Exception as exc:print("LATEST_MAXT_QMD",key,"error",repr(exc),flush=True)
