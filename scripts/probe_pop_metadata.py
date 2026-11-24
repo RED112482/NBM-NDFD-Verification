@@ -14,7 +14,7 @@ valid=ref+timedelta(hours=12)
 points=json.loads((DATA/"guidance.json").read_text())["points"]
 land_total=sum(bool(p["land"]) for p in points)
 for fam in ("Z98","Z97"):
- for d in (ref.date(),ref.date()-timedelta(days=1)):
+ for d in (ref.date()-timedelta(days=1),):
   keys=ndfd_keys(d,fam)
   print("NDFD PROBE KEYS",d,fam,len(keys),[(iso(ts),key) for ts,key in keys[:4]],flush=True)
   recent=[(issued,key) for issued,key in keys if issued<=ref and ref-issued<=timedelta(hours=7)]
