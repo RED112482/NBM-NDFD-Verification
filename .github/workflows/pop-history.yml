@@ -44,6 +44,8 @@ jobs:
           assert p["thresholdInches"]==0.01
           assert len(p["days"])==14, f"Expected 7 overnight + 7 daytime dates; got {len(p['days'])}"
           n_source=0
+          n_ndfd=0
+          n_nbm=0
           for key,day in p["days"].items():
               assert all(str(l) in day["leads"] for l in (12,24,36,48,60))
               truth=day.get("analysis")
@@ -52,15 +54,17 @@ jobs:
                   assert len(truth["meta"]["qpeKeys"])==2
                   assert set(x for x in truth["values"] if x is not None)<={0,100}
               for slot in day["leads"].values():
-                  for field in (slot["ndfd"],slot["nbm"]["det"]):
+                  for source,field in (("ndfd",slot["ndfd"]),("nbm",slot["nbm"]["det"])):
                       if field is None:continue
                       n_source+=1
+                      if source=="ndfd":n_ndfd+=1
+                      else:n_nbm+=1
                       assert field["meta"]["periodHours"]==12
                       assert field["meta"]["validUtc"]==key
                       assert field["meta"]["actualWindowEndUtc"]==key
                       assert all(0<=x<=100 for x in field["values"] if x is not None)
-          assert n_source>0, "No genuine PoP12 fields; refusing to publish empty dataset"
-          print("Validated",len(p["days"]),"PoP12 periods,",n_source,"forecast fields")
+          assert n_ndfd>0 and n_nbm>0, f"Missing verified PoP12 sources: NDFD {n_ndfd}, NBM {n_nbm}"
+          print("Validated",len(p["days"]),"PoP12 periods,",n_ndfd,"NDFD fields and",n_nbm,"NBM fields")
           PY
       - name: Commit true PoP12 history
         run: |
