@@ -568,7 +568,127 @@ const rankColor=rank=>{
  hi=t<=.5?[255,216,40]:[238,53,70],u=t<=.5?t*2:(t-.5)*2;
  return 'rgb('+lo.map((v,i)=>Math.round(v+(hi[i]-v)*u)).join(',')+')';
 };
+function renderPopGraph(rebuildRanking=true){
+ const {g,w,h}=prepareCanvas($('graphCanvas'));
+ g.fillStyle='#071723';g.fillRect(0,0,w,h);graphHits=[];
+ const days=currentDays()||{},sources=['ndfd','det'];
+ const dates=S.chartmode==='daily'?Object.keys(days).sort():
+  [S.date,S.date,S.date,S.date,S.date];
+ const leads=S.chartmode==='daily'?dates.map(()=>S.lead):[60,48,36,24,12];
+ const labels=S.chartmode==='daily'?dates.map(d=>
+  (d?.slice(5,10)||'—')+(new Date(d).getUTCHours()===12?'N':'D')):
+  leads.map(v=>'−'+v+'h');
+ const series=sources.map(src=>({
+  src,
+  values:dates.map((date,i)=>{
+   const d=days[date],field=layerFor(d,leads[i],src);
+   if(S.metric==='mean')return field?.stats?.[S.scope]?.mean??null;
+   return field?.verification?.[S.scope]?.[S.metric]??null;
+  }),
+  briers:dates.map((date,i)=>
+   layerFor(days[date],leads[i],src)?.verification?.[S.scope]?.brier??null)
+ }));
+ const qualified=series.map(row=>{
+  const values=row.briers.filter(finite);
+  return {row,brier:values.length?values.reduce((a,b)=>a+b,0)/values.length:null,
+    count:values.length};
+ }).filter(x=>finite(x.brier)).sort((a,b)=>a.brier-b.brier);
+ series.forEach(row=>{row.place=null;row.color='#8493a5';row.score=null;row.period=12});
+ qualified.forEach((e,i)=>{
+  e.row.place=i+1;e.row.score=e.brier;e.row.count=e.count;
+  e.row.color=rankColor(Math.min(1,e.brier/.5));e.row.cohortCount=qualified.length;
+ });
+ if(rebuildRanking){
+  $('rankingTitle').textContent='PoP12 ranking · Brier score';
+  const rankBox=$('rankings');rankBox.replaceChildren();
+  $('rankWarning').textContent='Lower Brier score is better (0 = perfect). PoP12 is compared with URMA 12h observed precipitation ≥0.01". The 50% forecast decision threshold determines hits/misses, not the Brier score.';
+  for(const entry of qualified){
+   const row=entry.row,div=document.createElement('div');
+   div.className='rank-item';div.style.borderColor=row.color;
+   div.dataset.guidance=row.src;div.tabIndex=0;div.setAttribute('role','button');
+   div.addEventListener('pointerenter',()=>{S.hoverGuidance=row.src;refreshRankingFocus();renderGraph(false)});
+   div.addEventListener('pointerleave',()=>{S.hoverGuidance=null;refreshRankingFocus();renderGraph(false)});
+   const lock=()=>{S.lockedGuidance=row.src;S.hoverGuidance=null;refreshRankingFocus();renderGraph(false)};
+   div.addEventListener('click',lock);
+   div.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();lock()}});
+   div.addEventListener('focus',()=>{S.hoverGuidance=row.src;refreshRankingFocus();renderGraph(false)});
+   div.addEventListener('blur',()=>{S.hoverGuidance=null;refreshRankingFocus();renderGraph(false)});
+   const number=document.createElement('strong');number.textContent='#'+row.place;number.style.color=row.color;
+   const label=document.createElement('span');label.textContent=srcTitle(row.src);
+   const val=document.createElement('div');val.textContent=row.score.toFixed(4)+' Brier · '+row.count+' verified periods';
+   val.style.color='#b8d8e9';div.append(number,label,val);rankBox.append(div);
+  }
+  if(!qualified.length)rankBox.textContent='PoP12 forecast or verifying QPE is not yet available for this selection.';
+ }
+ refreshRankingFocus();
+ const analysis=S.showAnalysis12&&S.metric==='mean'?
+  dates.map(date=>days[date]?.analysis?.stats?.[S.scope]?.mean??null):null;
+ const available=series.flatMap(row=>row.values.filter(finite)).concat(analysis?analysis.filter(finite):[]);
+ if(!available.length){
+  g.font='13px Poppins';g.fillStyle='#b8d8ec';
+  g.fillText('No matched PoP12 data. Newer URMA QPE may still be pending.',18,70);
+  $('graphHint').textContent='No matched PoP12 data';return;
+ }
+ const pad={l:53,r:16,t:39,b:44},pw=Math.max(6,w-pad.l-pad.r),ph=Math.max(6,h-pad.t-pad.b);
+ const smallest=Math.min(...available),largest=Math.max(...available),span=Math.max(5,largest-smallest);
+ const low=S.metric==='mean'?0:Math.max(S.metric==='mae'?0:-100,smallest-span*.15);
+ const high=S.metric==='mean'?100:Math.min(100,largest+span*.15);
+ const project=(i,v)=>[pad.l+pw*(labels.length<2?.5:i/(labels.length-1)),pad.t+ph*(high-v)/Math.max(1,high-low)];
+ g.font='10px Poppins';g.strokeStyle='#2b475f';g.fillStyle='#aac5da';
+ for(let k=0;k<=5;k++){
+  const val=low+(high-low)*k/5,y=project(0,val)[1];
+  g.beginPath();g.moveTo(pad.l,y);g.lineTo(w-pad.r,y);g.stroke();
+  g.fillText(val.toFixed(0),8,y+3);
+ }
+ labels.forEach((label,i)=>{
+  if(labels.length>8&&i%2) return;
+  const x=project(i,low)[0];g.fillText(label,Math.max(2,x-18),h-19);
+ });
+ if(analysis){
+  g.save();g.setLineDash([8,5]);g.lineWidth=2.8;g.strokeStyle='#ffffff';
+  for(let i=1;i<analysis.length;i++)if(finite(analysis[i-1])&&finite(analysis[i])){
+   const [x0,y0]=project(i-1,analysis[i-1]),[x1,y1]=project(i,analysis[i]);
+   g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.stroke();
+  }
+  for(let i=0;i<analysis.length;i++)if(finite(analysis[i])){
+   const [x,y]=project(i,analysis[i]);
+   g.beginPath();g.arc(x,y,4,0,2*Math.PI);g.fillStyle='#ffffff';g.fill();
+   graphHits.push({x,y,src:'analysis12',analysis:true,periodHours:12,date:dates[i],
+    lead:leads[i],metric:'mean',value:analysis[i],mae:null,tier:'Observed precipitation area coverage'});
+  }
+  g.restore();
+ }
+ const focus=focusedGuidance();
+ for(const row of series.filter(x=>x.src!==focus).concat(series.filter(x=>x.src===focus))){
+  const highlight=row.src===focus,dim=!highlight,vals=row.values;
+  for(let i=1;i<vals.length;i++){
+   if(!finite(vals[i-1])||!finite(vals[i]))continue;
+   const [x0,y0]=project(i-1,vals[i-1]),[x1,y1]=project(i,vals[i]);
+   if(highlight){
+    g.save();g.strokeStyle='#e4faff';g.lineWidth=8;g.globalAlpha=.65;
+    g.shadowBlur=13;g.shadowColor=row.color;
+    g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.stroke();g.restore();
+   }
+   g.save();g.globalAlpha=dim?.5:1;g.lineWidth=highlight?4:2.5;g.strokeStyle=row.color;
+   g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.stroke();g.restore();
+  }
+  for(let i=0;i<vals.length;i++){
+   if(!finite(vals[i]))continue;
+   const [x,y]=project(i,vals[i]);g.save();g.globalAlpha=dim?.5:1;
+   g.beginPath();g.arc(x,y,highlight?6:4.2,0,2*Math.PI);g.fillStyle=row.color;g.fill();
+   g.strokeStyle=highlight?'#ffffff':'#071723';g.lineWidth=highlight?2.2:1;g.stroke();g.restore();
+   graphHits.push({x,y,src:row.src,date:dates[i],lead:leads[i],value:vals[i],
+    mae:row.briers[i],tier:row.place?'Brier rank #'+row.place:'Not verified',
+    metric:S.metric,periodHours:12,probability:true});
+  }
+ }
+ $('graphTitle').textContent=S.chartmode==='lead'?'PoP12 • Single period · Multiple forecast leads':
+  'PoP12 • Multiple periods · Fixed forecast lead (−'+S.lead+'h)';
+ $('graphHint').textContent='PoP12 '+S.metric.toUpperCase()+' · Rank = Brier score · '+qualified.length+' verified sources';
+ $('graphTooltip').style.display='none';
+}
 function renderGraph(rebuildRanking=true){
+ if(S.product==='pop')return renderPopGraph(rebuildRanking);
  const {g,w,h}=prepareCanvas($('graphCanvas'));
  g.fillStyle='#071723';g.fillRect(0,0,w,h);graphHits=[];
  const days=currentDays(),sources=['ndfd','det','10','25','50','75','90'];
