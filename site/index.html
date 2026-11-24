@@ -632,17 +632,23 @@ function renderPopGraph(rebuildRanking=true){
   $('graphHint').textContent='No matched PoP12 data';return;
  }
  const pad={l:53,r:16,t:39,b:44},pw=Math.max(6,w-pad.l-pad.r),ph=Math.max(6,h-pad.t-pad.b);
- const smallest=Math.min(...available),largest=Math.max(...available),span=Math.max(5,largest-smallest);
- const isBrier=S.metric==='brier';
- const low=isBrier?0:S.metric==='mean'?0:Math.max(S.metric==='mae'?0:-100,smallest-span*.15);
- const high=isBrier?Math.max(.1,Math.min(1,Math.ceil(largest*10)/10+.05)):
+ const smallest=Math.min(...available),largest=Math.max(...available);
+ const isBrier=S.metric==='brier',span=Math.max(5,largest-smallest);
+ // Brier scores are fractions. Previously Math.max(1, high-low) compressed
+ // fractional differences into a tiny strip at the top of the canvas.
+ // Zoom around measured scores and use the *actual* selected axis range.
+ const brierMargin=Math.max(.005,(largest-smallest)*.25);
+ const low=isBrier?Math.max(0,smallest-brierMargin):
+  S.metric==='mean'?0:Math.max(S.metric==='mae'?0:-100,smallest-span*.15);
+ const high=isBrier?Math.min(1,Math.max(largest+brierMargin,low+.01)):
   S.metric==='mean'?100:Math.min(100,largest+span*.15);
- const project=(i,v)=>[pad.l+pw*(labels.length<2?.5:i/(labels.length-1)),pad.t+ph*(high-v)/Math.max(1,high-low)];
+ const valueRange=Math.max(1e-9,high-low);
+ const project=(i,v)=>[pad.l+pw*(labels.length<2?.5:i/(labels.length-1)),pad.t+ph*(high-v)/valueRange];
  g.font='10px Poppins';g.strokeStyle='#2b475f';g.fillStyle='#aac5da';
  for(let k=0;k<=5;k++){
   const val=low+(high-low)*k/5,y=project(0,val)[1];
   g.beginPath();g.moveTo(pad.l,y);g.lineTo(w-pad.r,y);g.stroke();
-  g.fillText(isBrier?val.toFixed(2):val.toFixed(0),8,y+3);
+  g.fillText(isBrier?val.toFixed(3):val.toFixed(0),5,y+3);
  }
  labels.forEach((label,i)=>{
   if(labels.length>8&&i%2) return;
@@ -688,7 +694,7 @@ function renderPopGraph(rebuildRanking=true){
  }
  $('graphTitle').textContent=S.chartmode==='lead'?'PoP12 • Single period · Multiple forecast leads':
   'PoP12 • Multiple periods · Fixed forecast lead (−'+S.lead+'h)';
- $('graphHint').textContent='Brier score against URMA • 0 perfect, 1 worst • Lower is better • '+qualified.length+' verified sources';
+ $('graphHint').textContent='Brier score vs URMA • Zoomed vertical axis ('+low.toFixed(3)+'–'+high.toFixed(3)+') • Lower is better • '+qualified.length+' verified sources';
  $('graphTooltip').style.display='none';
 }
 function renderGraph(rebuildRanking=true){
