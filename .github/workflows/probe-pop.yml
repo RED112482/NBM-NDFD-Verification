@@ -1,0 +1,20 @@
+name: Probe PoP12 & recent URMA source inventories (read-only)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/probe-pop.yml"
+      - "scripts/probe_pop.py"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install boto3
+      - run: python -u scripts/probe_pop.py
