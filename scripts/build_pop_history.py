@@ -49,7 +49,7 @@ def sample(grib, points, source):
 @lru_cache(maxsize=50)
 def ndfd_keys(day, family):
     date=day.strftime("%Y/%m/%d")
-    prefix=f"wmo/pop12/{date}/YDA{family}_KWBN_"
+    prefix=f"wmo/pop12/{date}/YDU{family}_KWBN_"  # U=CONUS, A=Puerto Rico
     result=[]
     paginator=s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=NDFD_BUCKET,Prefix=prefix):
