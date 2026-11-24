@@ -998,9 +998,10 @@ function update(){
   '  |  NDFD reference cutoff: '+utcFmt(reference)+' ('+localFmt(reference)+')'+
   '  |  Actual NDFD issuance: '+(ndfdIssued?utcFmt(new Date(ndfdIssued)):'unavailable')+
   '  |  NBM cycle: '+(slot?.nbmCycleUtc?utcFmt(new Date(slot.nbmCycleUtc)):'unavailable')+
-  '  |  12h extrema window: '+(slot?.expectedWindowStartUtc?utcFmt(new Date(slot.expectedWindowStartUtc)):'—')+
-  ' → '+(slot?.expectedWindowEndUtc?utcFmt(new Date(slot.expectedWindowEndUtc)):'—')+
-  (pop?'  |  URMA QPE 6h + 6h; 12h measurable-precip threshold 0.01 in':
+  (pop?'  |  PoP12 window: '+(valid?utcFmt(new Date(valid.getTime()-12*3600000)):'—')+
+   ' → '+utcFmt(valid)+'  |  URMA QPE: two 6h blocks · event threshold ≥0.01 in':
+   '  |  12h extrema window: '+(slot?.expectedWindowStartUtc?utcFmt(new Date(slot.expectedWindowStartUtc)):'—')+
+   ' → '+(slot?.expectedWindowEndUtc?utcFmt(new Date(slot.expectedWindowEndUtc)):'—')+
    '  |  Cutoff selects newest archived NDFD available by that time (not necessarily exactly at cutoff).');
  $('alert').textContent=errors.join('\n');
  populateStats();if(!pop){populateRawAudit();populateLeadAudit()}renderMap();renderGraph();
